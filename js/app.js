@@ -69,6 +69,11 @@ async function reload() {
   const [tasks, cats, settings, rework, feeds] = await Promise.all([db.tasks(), db.categories(), db.settings(), db.reworkIds().catch(() => []), db.feeds().catch(() => [])]);
   S.feeds = feeds;
   S.rework = new Set(rework);
+  // задачи, поставленные «В процессе» до включения таймера, — запускаем отсчёт сейчас
+  for (const t of tasks) if (t.status === 'in_progress' && !t.started_at) {
+    t.started_at = new Date().toISOString(); // с этого момента, чтобы не насчитать лишних часов
+    db.updateTask(t.id, { started_at: t.started_at }).catch(() => {});
+  }
   S.tasks = tasks; S.cats = cats.map((c) => ({ ...c, color: fixColor(c.color) })); S.settings = settings;
   save('cache', { tasks, cats, settings });
   render();
@@ -652,7 +657,14 @@ function stackBar(byAuthor, total, max, { tall = false } = {}) {
 function viewReport() {
   const R = S.report;
   const ranges = [['today', 'Сегодня'], ['yesterday', 'Вчера'], ['week', '7 дней'], ['month', '30 дней']];
-  const logs = R.logs;
+  // задачи «В процессе» прямо сейчас: их время считаем вживую, запись в журнал появится, когда сменишь статус
+  const { from: rFrom, to: rTo } = reportRange(R.range);
+  const now = new Date();
+  const live = now < rTo ? S.tasks.filter((t) => t.status === 'in_progress' && t.started_at).map((t) => {
+    const start = Math.max(new Date(t.started_at).getTime(), rFrom.getTime());
+    return { task_id: t.id, author: 'me', minutes: Math.max(0, Math.min(720, Math.round((now - start) / 60000))), logged_at: now.toISOString(), result: 'progress', live: true };
+  }).filter((l) => l.minutes > 0) : [];
+  const logs = [...R.logs, ...live];
   const total = logs.reduce((s, l) => s + l.minutes, 0);
   const byAuthor = {};
   const byTask = {};
@@ -729,7 +741,7 @@ function viewReport() {
 
   // журнал по дням
   const feedDays = {};
-  for (const l of logs) (feedDays[ymd(new Date(l.logged_at))] ||= []).push(l);
+  for (const l of R.logs) (feedDays[ymd(new Date(l.logged_at))] ||= []).push(l);
 
   return `
     <div class="report">
@@ -930,7 +942,9 @@ function activityRings(day) {
     { k: 'move', v: day?.move_kcal || 0, goal: g.move, r: 44, label: 'Подвижность', unit: 'ккал' },
     { k: 'ex', v: day?.exercise_min || 0, goal: g.ex, r: 32, label: 'Упражнения', unit: 'мин' },
     { k: 'stand', v: day?.stand_hours || 0, goal: g.stand, r: 20, label: 'Стоя', unit: 'ч' },
-  ].filter((x) => x.k === 'move' || day?.[x.k === 'ex' ? 'exercise_min' : 'stand_hours'] != null); // кольца, которых «Команды» не отдают, не показываем
+  ];
+  // «Команды» на части iOS не отдают упражнения и стойку — такие кольца остаются пустыми с прочерком
+  rings.forEach((x) => { x.none = day?.[{ move: 'move_kcal', ex: 'exercise_min', stand: 'stand_hours' }[x.k]] == null; });
   return `
     <div class="rings">
       <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -944,7 +958,7 @@ function activityRings(day) {
         ${rings.map((x) => `
           <div class="ring-row rg-${x.k}">
             <div class="rr-lbl"><i class="rr-dot"></i>${x.label}</div>
-            <div class="rr-val"><b class="num">${Math.round(x.v)}</b><span>/ ${x.goal} ${x.unit}</span></div>
+            <div class="rr-val"><b class="num">${x.none ? '—' : Math.round(x.v)}</b><span>/ ${x.goal} ${x.unit}</span></div>
           </div>`).join('')}
       </div>
     </div>`;
