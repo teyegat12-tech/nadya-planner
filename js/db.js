@@ -170,6 +170,29 @@ export const db = {
     return j;
   },
 
+  // ---------- календари (Google, iCloud) — только чтение ----------
+  async feeds() {
+    return check(await sb.from('calendar_feeds').select('id,name,url,color,enabled').order('created_at'));
+  },
+  async addFeed(row) {
+    return check(await sb.from('calendar_feeds').insert(row).select('id,name,url,color,enabled').single());
+  },
+  async updateFeed(id, patch) {
+    check(await sb.from('calendar_feeds').update(patch).eq('id', id));
+  },
+  async deleteFeed(id) {
+    check(await sb.from('calendar_feeds').delete().eq('id', id));
+  },
+  async events(from, to) {
+    const { data } = await sb.auth.getSession();
+    const res = await fetch(`/api/events?from=${from}&to=${to}`, {
+      headers: { Authorization: `Bearer ${data.session?.access_token}` },
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(j.error || 'Не получилось загрузить календари');
+    return j;
+  },
+
   // Живая синхронизация: любое изменение на другом устройстве → cb()
   subscribe(cb) {
     const ch = sb.channel('planner-sync')

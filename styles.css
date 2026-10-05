@@ -1855,3 +1855,56 @@ body { background: linear-gradient(170deg, #F5F3F9 0%, #E3E1EA 55%, #C9C3D8 100%
 .card.info-card > p + p { margin-top: -6px; }
 .card.info-card > h3 + p { margin-top: -7px; }
 .card.info-card .hints { margin: -4px 0 0 27px; }
+
+/* ---------- шаг 17: события из календарей (Google / iCloud) ---------- */
+/* событие — «прозрачная» строка рядом с задачами: без подложки карточки, со временем слева */
+.ev { display: grid; grid-template-columns: 52px minmax(0,1fr) 32px; align-items: center; gap: 12px;
+  padding: 12px 14px 12px 16px; margin-bottom: 10px; border-radius: 22px;
+  background: rgba(255,255,255,.34); border: 1px dashed rgba(80,79,86,.18); }
+.ev.past { opacity: .5; }
+.ev-time { font: 500 12px/1.25 var(--mono); color: var(--title); }
+.ev-time small { display: block; font-size: 11px; color: var(--muted); }
+.ev-body { min-width: 0; }
+.ev-title { font: 500 15px/1.3 var(--font); color: var(--text); overflow-wrap: anywhere; }
+.ev-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; font: 400 12.5px/1.3 var(--font); color: var(--muted); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.ev-dot.big { width: 12px; height: 12px; }
+.ev-add { width: 32px; height: 32px; border-radius: 50%; border: 0; background: #fff; color: var(--title); display: grid; place-items: center; cursor: pointer; transition: transform .15s, background .15s; }
+.ev-add .ic { width: 15px; height: 15px; }
+.ev-add:hover { background: var(--grad-hot); color: #fff; }
+.ev-add:active { transform: scale(.92); }
+.board .ev { display: none; }
+
+/* карточка в Профиле */
+.feeds-card > h3 + p { margin-left: 27px; margin-top: -7px; }
+.feeds { display: flex; flex-direction: column; gap: 8px; }
+.feed-row { display: grid; grid-template-columns: 12px minmax(0,1fr) 46px; align-items: center; gap: 12px; padding: 8px 0 8px 18px; border-radius: 999px; background: var(--field); }
+.feed-txt { min-width: 0; }
+.feed-name { font: 500 15px/1.25 var(--font); color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feed-host { font: 400 12px/1.3 var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.feed-host.err { font-family: var(--font); color: #e9846f; }
+.feed-row .icon-btn { width: 38px; height: 38px; }
+.feed-row .icon-btn.armed { width: auto; padding: 0 14px; border-radius: 999px; white-space: nowrap; font: 800 11px var(--font); text-transform: uppercase; letter-spacing: .04em; }
+.feed-add { display: flex; flex-direction: column; gap: 8px; }
+.feed-add input { width: 100%; box-sizing: border-box; }
+.feed-help summary { cursor: pointer; font: 800 11px var(--font); text-transform: uppercase; letter-spacing: .04em; color: var(--title); list-style: none; padding: 4px 0; }
+.feed-help summary::-webkit-details-marker { display: none; }
+.feed-help summary::after { content: ' ↓'; }
+.feed-help[open] summary::after { content: ' ↑'; }
+.feed-help p { font: 400 12.5px/1.45 var(--font); color: var(--muted); margin: 6px 0 0; }
+.feed-help p b { color: var(--text); font-weight: 600; }
+.feed-add input { height: 46px; border: 0; border-radius: 999px; background: var(--field); outline: none; font: var(--p1); color: var(--text); }
+.feed-add input.path-in { font: 400 12.5px var(--mono); }
+.feed-add input::placeholder { color: var(--muted); }
+.feed-add .btn { margin-top: 4px; }
+/* шаг 18: одно поле задачи — первая строка название, ниже подробности */
+.sheet label.first { margin-top: 0; }
+.sheet .task-text { font: 500 16px/1.4 var(--font); color: var(--text); min-height: 56px; }
+/* шаг 19: будущие повторы в «Неделе» — бледная копия задачи */
+.task.ghost { opacity: .55; background: rgba(255,255,255,.3) !important; box-shadow: none !important; border: 1px dashed rgba(80,79,86,.18); }
+.task.ghost .check.ghost-ic { display: grid; place-items: center; background: transparent; border: 1px dashed rgba(80,79,86,.3); color: var(--muted); cursor: pointer; }
+.task.ghost .check.ghost-ic .ic { width: 12px; height: 12px; }
+.status.s-ghost { background: transparent; color: var(--muted); border: 1px solid rgba(80,79,86,.18); }
+.chips.days { display: grid !important; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 6px; }
+.chips.days.hidden { display: none !important; }
+.chips.days button { padding-left: 0 !important; padding-right: 0 !important; min-width: 0; justify-content: center; }

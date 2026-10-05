@@ -44,6 +44,13 @@ export default async function handler(req, res) {
       } else {
         lines.push(`DTSTART;VALUE=DATE:${dateOnly(t.due_date)}`, `DTEND;VALUE=DATE:${dateOnly(addDays(t.due_date, 1))}`);
       }
+      // повтор — чтобы в календаре были видны все будущие разы, а не только ближайший
+      if (t.repeat && (t.status === 'todo' || t.status === 'in_progress')) {
+        const BY = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+        if (t.repeat.freq === 'daily') lines.push('RRULE:FREQ=DAILY');
+        if (t.repeat.freq === 'monthly') lines.push('RRULE:FREQ=MONTHLY');
+        if (t.repeat.freq === 'weekly' && t.repeat.days?.length) lines.push(`RRULE:FREQ=WEEKLY;BYDAY=${t.repeat.days.map((d) => BY[d - 1]).join(',')}`);
+      }
       lines.push(`SUMMARY:${icsEsc(prefix + (c?.emoji ? c.emoji + ' ' : '') + t.title)}`);
       if (t.notes) lines.push(`DESCRIPTION:${icsEsc(t.notes)}`);
       if (c) lines.push(`CATEGORIES:${icsEsc(c.name)}`);

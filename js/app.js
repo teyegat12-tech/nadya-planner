@@ -17,6 +17,9 @@ const S = {
   cat: load('cat', 'all'),
   editing: null, // задача в окне редактирования
   showDone: false,
+  feeds: [],
+  events: load('events', []), // события из календарей Google / iCloud
+  evErrors: [],
 };
 
 function load(k, def) { try { return JSON.parse(localStorage.getItem('pl_' + k)) ?? def; } catch { return def; } }
@@ -63,13 +66,70 @@ async function safe(fn, okMsg) {
 
 // ---------- загрузка данных ----------
 async function reload() {
-  const [tasks, cats, settings, rework] = await Promise.all([db.tasks(), db.categories(), db.settings(), db.reworkIds().catch(() => [])]);
+  const [tasks, cats, settings, rework, feeds] = await Promise.all([db.tasks(), db.categories(), db.settings(), db.reworkIds().catch(() => []), db.feeds().catch(() => [])]);
+  S.feeds = feeds;
   S.rework = new Set(rework);
   S.tasks = tasks; S.cats = cats.map((c) => ({ ...c, color: fixColor(c.color) })); S.settings = settings;
   save('cache', { tasks, cats, settings });
   render();
   if (S.view === 'report') loadReport();
   if (S.view === 'health') loadHealth();
+  loadEvents();
+}
+
+// ---------- события из календарей (только чтение) ----------
+let evLoadedAt = 0;
+async function loadEvents(force = false) {
+  if (!S.feeds.length) { if (S.events.length) { S.events = []; save('events', []); render(); } return; }
+  if (!force && Date.now() - evLoadedAt < 60 * 1000) return;
+  evLoadedAt = Date.now();
+  try {
+    const td = today();
+    const r = await db.events(td, addDays(td, 13));
+    S.events = r.events || [];
+    S.evErrors = r.errors || [];
+    save('events', S.events);
+    render();
+  } catch (e) { console.warn(e); }
+}
+const feedById = (id) => S.feeds.find((f) => f.id === id);
+function eventsOn(day) {
+  if (S.cat !== 'all') return [];
+  const taken = new Set(S.tasks.map((t) => t.source_uid).filter(Boolean));
+  return S.events.filter((e) => e.date === day && !taken.has(e.key) && feedById(e.feed_id));
+}
+function eventRow(e) {
+  const f = feedById(e.feed_id);
+  const past = e.date === today() && !e.all_day && (e.end || e.start) < nowHM();
+  return `
+    <div class="ev ${past ? 'past' : ''}" data-key="${esc(e.key)}">
+      <div class="ev-time">${e.all_day ? 'весь<br>день' : `${e.start}${e.end ? `<small>${e.end}</small>` : ''}`}</div>
+      <div class="ev-body">
+        <div class="ev-title">${esc(e.title)}</div>
+        <div class="ev-meta"><span class="ev-dot" style="background:${f?.color || '#a69cd6'}"></span>${esc(f?.name || 'Календарь')}${e.location ? ` · ${esc(e.location)}` : ''}</div>
+      </div>
+      <button class="ev-add" data-act="ev-task" data-key="${esc(e.key)}" aria-label="Сделать задачей" title="Сделать задачей">${I('plus')}</button>
+    </div>`;
+}
+// будущие повторы задачи — показываем бледными в «Неделе», настоящая задача одна (следующая создаётся, когда отметишь)
+function repeatsOn(r, from, day) {
+  if (!r || day <= from) return false;
+  if (r.freq === 'daily') return true;
+  if (r.freq === 'weekly') return (r.days || []).includes(isoDow(day));
+  if (r.freq === 'monthly') return Number(day.slice(8)) === Number(from.slice(8));
+  return false;
+}
+function ghostsOn(day) {
+  return visible(S.tasks).filter((t) => t.repeat && t.due_date && isActive(t) && repeatsOn(t.repeat, t.due_date, day));
+}
+// задачи и события одного дня вперемешку по времени
+function dayRows(tasks, evs, opts = {}, ghosts = []) {
+  const items = [
+    ...ghosts.map((t) => ({ k: t.due_time ? '1' + shortTime(t.due_time) : '2', h: taskRow(t, { ghost: true }) })),
+    ...tasks.map((t) => ({ k: t.status === 'done' ? '3' : t.due_time ? '1' + shortTime(t.due_time) : '2', h: taskRow(t, opts) })),
+    ...evs.map((e) => ({ k: e.all_day ? '0' : '1' + e.start, h: eventRow(e) })),
+  ];
+  return items.sort((a, b) => a.k.localeCompare(b.k)).map((x) => x.h).join('');
 }
 
 let reloadTimer;
@@ -87,7 +147,7 @@ function sortByTime(a, b) {
 }
 
 // ---------- карточка задачи ----------
-function taskRow(t, { showDate = false, board = false } = {}) {
+function taskRow(t, { showDate = false, board = false, ghost = false } = {}) {
   const c = catById(t.category_id);
   const td = today();
   const overdue = isActive(t) && t.due_date && (t.due_date < td || (t.due_date === td && t.due_time && shortTime(t.due_time) < nowHM()));
@@ -106,13 +166,13 @@ function taskRow(t, { showDate = false, board = false } = {}) {
   if (t.remind_before_min != null && t.due_time) info.push(I('bell', 'sm'));
   if (t.notes) info.push(I('note', 'sm'));
   return `
-    <div class="task ${t.status} ${overdue ? 'overdue' : ''}" data-id="${t.id}" draggable="true">
+    <div class="task ${ghost ? 'ghost' : `${t.status} ${overdue ? 'overdue' : ''}`}" data-id="${t.id}" ${ghost ? '' : 'draggable="true"'}>
       <div class="task-top" data-act="open">
         <span class="task-cat">${c ? `${plate(c, 'xs')}<span class="tc-name">${esc(c.name)}</span>` : 'Без категории'}</span>
-        ${stShow ? `<span class="status s-${stShow[0]}">${stShow[1]}</span>` : ''}
+        ${ghost ? '<span class="status s-ghost">Повтор</span>' : stShow ? `<span class="status s-${stShow[0]}">${stShow[1]}</span>` : ''}
       </div>
       <div class="task-main">
-        <button class="check" data-act="toggle" aria-label="Готово">${t.status === 'paused' ? I('pause') : ''}</button>
+        ${ghost ? `<span class="check ghost-ic" data-act="open">${I('repeat', 'sm')}</span>` : `<button class="check" data-act="toggle" aria-label="Готово">${t.status === 'paused' ? I('pause') : ''}</button>`}
         <div class="task-title" data-act="open">${esc(t.title)}</div>
         ${info.length ? `<div class="task-meta" data-act="open">${info.map((m) => `<span class="mi">${m}</span>`).join('')}</div>` : ''}
       </div>
@@ -120,11 +180,12 @@ function taskRow(t, { showDate = false, board = false } = {}) {
 }
 
 function section(title, tasks, opts = {}) {
-  if (!tasks.length && !opts.always) return '';
+  const evs = opts.events || [];
+  if (!tasks.length && !evs.length && !opts.always) return '';
   return `
     <section class="group">
       <h3>${title}${tasks.length ? ` <span class="count">${tasks.filter(isActive).length || ''}</span>` : ''}</h3>
-      ${tasks.map((t) => taskRow(t, opts)).join('') || `<div class="empty">${opts.empty || 'Пусто'}</div>`}
+      ${(evs.length ? dayRows(tasks, evs, opts) : tasks.map((t) => taskRow(t, opts)).join('')) || `<div class="empty">${opts.empty || 'Пусто'}</div>`}
     </section>`;
 }
 
@@ -147,7 +208,7 @@ function viewToday() {
       ${progressRing()}
     </div>
     ${section(`${I('alert', 'sm')} Просрочено`, overdue, { showDate: true })}
-    ${section('Сегодня', todays, { always: true, empty: 'На сегодня ничего — красота' })}
+    ${section('Сегодня', todays, { always: true, empty: 'На сегодня ничего — красота', events: eventsOn(td) })}
     ${section(`${I('inbox', 'sm')} Без даты`, inbox)}
     ${section(`${I('pause', 'sm')} На паузе`, paused, { showDate: true })}
     ${doneCount ? `<button class="link-btn" data-act="archive">Убрать выполненные (${doneCount})</button>` : ''}`;
@@ -187,7 +248,7 @@ function viewWeek() {
     html += `
       <section class="group day ${isoDow(day) >= 6 ? 'weekend' : ''}">
         <h3>${label[0].toUpperCase() + label.slice(1)} <button class="add-day" data-act="add-on" data-date="${day}" aria-label="Добавить">${I('plus')}</button></h3>
-        ${list.map((t) => taskRow(t)).join('') || '<div class="empty small">—</div>'}
+        ${dayRows(list, eventsOn(day), {}, ghostsOn(day)) || '<div class="empty small">—</div>'}
       </section>`;
   }
   const later = all.filter((t) => t.due_date && t.due_date > addDays(td, 13) && isActive(t));
@@ -256,7 +317,7 @@ function viewSettings() {
         <h3>${I('heart')} Цели на день</h3>
         ${[['kcal_goal', 'Еда, ккал', 1800], ['water_goal', 'Вода, мл', 2000], ['move_goal', 'Подвижность, ккал', 750], ['exercise_goal', 'Упражнения, мин', 30], ['stand_goal', 'Стоя, часов', 12], ['steps_goal', 'Шаги', 8000]]
           .map(([k, l, d]) => `<label class="row">${l}<input type="number" class="goal-in" data-goal="${k}" data-step="${{ kcal_goal: 50, water_goal: 250, move_goal: 10, exercise_goal: 5, stand_goal: 1, steps_goal: 500 }[k] || 1}" value="${s[k] ?? d}"></label>`).join('')}
-        <p class="muted small">Данные с Apple Watch приходят через приложение «Команды» на iPhone — инструкцию дам при запуске.</p>
+        <p class="muted small">Данные с Apple Watch приходят через команду в приложении «Команды» на iPhone — она запускается сама несколько раз в день.</p>
       </section>
 
       <section class="card">
@@ -264,6 +325,32 @@ function viewSettings() {
         <p>Задачи с датами появятся в Календаре на iPhone, iPad и Mac и будут обновляться сами.</p>
         <a class="btn primary" href="${calWebcal}">Добавить в Календарь Apple</a>
         <button class="btn" data-act="copy" data-text="${calHttps}">Ссылка для Google</button>
+      </section>
+
+      <section class="card feeds-card">
+        <h3>${I('calendar')} События из календарей</h3>
+        <p>Встречи из Google и iCloud появятся в «Сегодня» и «Неделе». Любую можно превратить в задачу. Только просмотр — сами календари планер не меняет.</p>
+        ${S.feeds.length ? `<div class="feeds">${S.feeds.map((f) => {
+          const err = S.evErrors.find((x) => x.feed_id === f.id);
+          let host = ''; try { host = new URL(f.url.replace(/^webcals?:/i, 'https:')).hostname.replace(/^p\d+-caldav\./, ''); } catch {}
+          return `
+          <div class="feed-row" data-id="${f.id}">
+            <span class="ev-dot big" style="background:${f.color || '#a69cd6'}"></span>
+            <div class="feed-txt"><div class="feed-name">${esc(f.name)}</div><div class="feed-host ${err ? 'err' : ''}">${err ? esc(err.error) : esc(host)}</div></div>
+            <button class="icon-btn" data-act="feed-del" data-id="${f.id}" title="Отключить">${I('x')}</button>
+          </div>`;
+        }).join('')}</div>` : ''}
+        ${`
+        <div class="feed-add">
+          <input id="feed-name" placeholder="Название, например: Работа" maxlength="40">
+          <input id="feed-url" class="path-in" placeholder="Ссылка iCal (https:// или webcal://)" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <button class="btn" data-act="feed-add">${I('plus')}Календарь</button>
+        </div>
+        <details class="feed-help">
+          <summary>Где взять ссылку</summary>
+          <p><b>Google:</b> calendar.google.com на компьютере → шестерёнка → «Настройки» → слева выбери календарь → «Интеграция календаря» → «Секретный адрес в формате iCal» → скопировать.</p>
+          <p><b>iCloud:</b> Календарь на iPhone → «Календари» → «i» рядом с календарём → включи «Публичный календарь» → «Поделиться ссылкой» → «Скопировать».</p>
+        </details>`}
       </section>
 
       <section class="card">
@@ -311,8 +398,8 @@ function sheet(t) {
     <div class="sheet-bg" data-act="close"></div>
     <div class="sheet" role="dialog">
       <div class="sheet-top"><div class="sheet-handle"></div><button class="close-x" data-act="close" aria-label="Закрыть">${I('x')}</button></div>
-      <input class="title-in" id="f-title" value="${esc(t.title)}" placeholder="Что сделать?">
-      <textarea id="f-notes" placeholder="Заметка, ссылка…" rows="2">${esc(t.notes || '')}</textarea>
+      <label class="first">Задача</label>
+      <textarea id="f-text" class="task-text" rows="2" placeholder="Что сделать? Подробности и ссылки — с новой строки">${esc([t.title, t.notes].filter(Boolean).join('\n'))}</textarea>
 
       <label>Статус</label>
       <div class="pick" id="f-status">
@@ -349,7 +436,7 @@ function sheet(t) {
           <select id="f-repeat">
             <option value="none" ${repKind === 'none' ? 'selected' : ''}>Не повторять</option>
             <option value="daily" ${repKind === 'daily' ? 'selected' : ''}>Каждый день</option>
-            <option value="weekly" ${repKind === 'weekly' ? 'selected' : ''}>По дням недели</option>
+            <option value="weekly" ${repKind === 'weekly' ? 'selected' : ''}>Каждую неделю</option>
             <option value="monthly" ${repKind === 'monthly' ? 'selected' : ''}>Каждый месяц</option>
           </select>
         </label>
@@ -447,7 +534,7 @@ function openSheet(t) {
   const box = $('#sheet');
   box.innerHTML = sheet(S.editing);
   box.classList.add('open');
-  if (!t.id) setTimeout(() => $('#f-title')?.focus(), 50);
+  if (!t.id) setTimeout(() => $('#f-text')?.focus(), 50);
   else fillTaskLogs(t.id);
 }
 function closeSheet() {
@@ -470,9 +557,15 @@ function readSheet() {
   const remind = $('#f-remind').value;
   let due_date = $('#f-date').value || null;
   if (repeat && !due_date) due_date = today();
+  // одно поле: первая строка — название задачи, всё ниже — подробности
+  const lines = $('#f-text').value.replace(/\r/g, '').split('\n');
+  while (lines.length && !lines[0].trim()) lines.shift();
+  const first = (lines.shift() || '').trim();
+  const title = first.slice(0, 140);
+  const notes = [first.slice(140), ...lines].join('\n').trim();
   return {
-    title: $('#f-title').value.trim(),
-    notes: $('#f-notes').value.trim() || null,
+    title,
+    notes: notes || null,
     status: on('f-status') || (S.editing?.status === 'paused' ? 'paused' : 'todo'),
     category_id: on('f-cat') || null,
     due_date,
@@ -837,7 +930,7 @@ function activityRings(day) {
     { k: 'move', v: day?.move_kcal || 0, goal: g.move, r: 44, label: 'Подвижность', unit: 'ккал' },
     { k: 'ex', v: day?.exercise_min || 0, goal: g.ex, r: 32, label: 'Упражнения', unit: 'мин' },
     { k: 'stand', v: day?.stand_hours || 0, goal: g.stand, r: 20, label: 'Стоя', unit: 'ч' },
-  ];
+  ].filter((x) => x.k === 'move' || day?.[x.k === 'ex' ? 'exercise_min' : 'stand_hours'] != null); // кольца, которых «Команды» не отдают, не показываем
   return `
     <div class="rings">
       <svg viewBox="0 0 100 100" aria-hidden="true">
@@ -860,7 +953,7 @@ function activityRings(day) {
 function maybeCelebrateRings() {
   const H = S.health, d = H.day, g = goals();
   if (!d || H.date !== today()) return;
-  if (d.move_kcal >= g.move && d.exercise_min >= g.ex && d.stand_hours >= g.stand) {
+  if (d.move_kcal >= g.move && (d.exercise_min == null || d.exercise_min >= g.ex) && (d.stand_hours == null || d.stand_hours >= g.stand)) {
     const k = 'rings_' + H.date;
     if (!load(k, false)) { save(k, true); playDayDone(); celebrate(); toast('Все кольца закрыты!'); }
   }
@@ -1551,6 +1644,37 @@ document.addEventListener('click', async (e) => {
       await safe(reload);
       toast(S.settings?.telegram_chat_id ? 'Telegram подключён ✓' : 'Пока не вижу — нажми Start в боте', !S.settings?.telegram_chat_id);
       break;
+    case 'feed-add': {
+      const name = $('#feed-name')?.value.trim();
+      const url = $('#feed-url')?.value.trim();
+      if (!url || !/^(https|webcals?):\/\//i.test(url)) { toast('Вставь ссылку iCal — она начинается с https:// или webcal://', true); break; }
+      if (S.feeds.some((f) => f.url === url)) { toast('Этот календарь уже подключён', true); break; }
+      const used = new Set(S.feeds.map((f) => f.color));
+      const color = CAT_COLORS.find((c) => !used.has(c)) || CAT_COLORS[S.feeds.length % CAT_COLORS.length];
+      const host = url.includes('google.com') ? 'Google' : url.includes('icloud.com') ? 'iCloud' : 'Календарь';
+      const f = await safe(() => db.addFeed({ name: name || host, url, color }), 'Календарь подключён');
+      if (f) { if (!S.feeds.some((x) => x.id === f.id)) S.feeds.push(f); render(); loadEvents(true); }
+      break;
+    }
+    case 'feed-del': {
+      if (!sure(el, 'Отключить?')) break;
+      const id = el.dataset.id;
+      await safe(() => db.deleteFeed(id), 'Календарь отключён');
+      S.feeds = S.feeds.filter((f) => f.id !== id);
+      S.events = S.events.filter((e) => e.feed_id !== id); save('events', S.events);
+      render();
+      break;
+    }
+    case 'ev-task': {
+      const e = S.events.find((x) => x.key === el.dataset.key);
+      if (!e) break;
+      const created = await safe(() => db.addTask({
+        title: e.title, due_date: e.date, due_time: e.all_day ? null : e.start,
+        notes: e.location || null, source_uid: e.key, remind_before_min: e.all_day ? null : 0,
+      }), 'Добавлено в задачи');
+      if (created) { S.tasks.push(created); render(); }
+      break;
+    }
     case 'add-cat':
     case 'cat-new':
       toggleCatAdd();
@@ -1618,7 +1742,15 @@ document.addEventListener('change', async (e) => {
     reloadSoon();
   }
   if (e.target.id === 'digest') await safe(() => db.updateSettings({ digest_time: e.target.value }), 'Сохранено');
-  if (e.target.id === 'f-repeat') $('#f-days').classList.toggle('hidden', e.target.value !== 'weekly');
+  if (e.target.id === 'f-repeat') {
+    const weekly = e.target.value === 'weekly';
+    $('#f-days').classList.toggle('hidden', !weekly);
+    // сразу отмечаем день недели из даты задачи — можно добавить ещё дни
+    if (weekly && !$('#f-days .on')) {
+      const d = $('#f-date').value || today();
+      $(`#f-days [data-v="${isoDow(d)}"]`)?.classList.add('on');
+    }
+  }
 });
 
 // подсказка при быстром вводе
@@ -1729,6 +1861,7 @@ async function start() {
 
   // вернулась в приложение — обновить
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.session) reloadSoon(); });
+  setInterval(() => { if (!document.hidden && S.session) loadEvents(); }, 10 * 60 * 1000);
   // раз в минуту перерисовать (просрочки, смена дня)
   setInterval(() => { if (S.session && !S.editing && document.activeElement?.id !== 'quick-in') render(); }, 60000);
 
