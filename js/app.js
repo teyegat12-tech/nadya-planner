@@ -68,6 +68,15 @@ async function safe(fn, okMsg) {
 
 // ---------- загрузка данных ----------
 async function reload() {
+  S.reductionError = false;
+  try {
+    S.reductions = await db.reductions();
+    S.reductionEntries = await db.reductionEntries();
+  } catch {
+    S.reductionError = true;
+    S.reductions = []; S.reductionEntries = [];
+  }
+  S.archivedTasks = await db.archivedTasks();
   const [tasks, cats, settings, rework, feeds, habits, hchecks] = await Promise.all([db.tasks(), db.categories(), db.settings(), db.reworkIds().catch(() => []), db.feeds().catch(() => []), db.habits().catch(() => []), db.habitChecks().catch(() => [])]);
   S.feeds = feeds;
   S.habits = habits; S.hchecks = new Set(hchecks.map((c) => hKey(c.habit_id, c.date)));
@@ -171,8 +180,9 @@ function habitStrip() {
       <div class="hb-strip-head"><h3>${I('flame', 'sm')} Привычки</h3><button class="link-btn" data-view="habits">Все</button></div>
       <div class="hb-row">${act.map((h) => { const st = habitStats(h); return `
         <button class="hb-dot ${st.todayOn ? 'on' : ''}" data-act="hb-today" data-id="${h.id}" style="${pcVars(h.color)}" title="${esc(h.title)}">
-          <span class="hb-ring">${st.todayOn ? I('check') : I(catIcon({ emoji: h.icon }))}</span>
+          <span class="hb-ring"><svg class="hb-progress" viewBox="0 0 64 64" aria-hidden="true"><circle class="hb-progress-track" cx="32" cy="32" r="27"/><circle class="hb-progress-fill" cx="32" cy="32" r="27" pathLength="100" stroke-dasharray="${100 * st.done / h.days} 100" style="${st.done ? '' : 'visibility:hidden'}"/></svg>${st.todayOn ? I('check') : I(catIcon({ emoji: h.icon }))}</span>
           <span class="hb-name">${esc(h.title)}</span>
+          <span class="hb-count">${st.done} / ${h.days}</span>
         </button>`; }).join('')}</div>
     </section>`;
 }
@@ -210,11 +220,13 @@ function habitCard(h) {
 }
 
 function viewHabits() {
+  const tabs = `<nav class="seg"><button data-act="habit-mode" data-mode="formation" class="${S.habitMode !== 'reduction' ? 'on' : ''}">Формирование</button><button data-act="habit-mode" data-mode="reduction" class="${S.habitMode === 'reduction' ? 'on' : ''}">Сокращение</button></nav>`;
+  if (S.habitMode === 'reduction') return tabs + viewReductions();
   const list = S.habits.map((h) => [h, habitStats(h)]);
   const going = list.filter(([, st]) => !st.finished).map(([h]) => h);
   const done = list.filter(([, st]) => st.finished).map(([h]) => h);
   return `
-    <div class="habits">
+    ${tabs}<div class="habits">
       ${going.length ? going.map(habitCard).join('') : `
         <section class="card hb-empty">
           <h3>${I('flame')} Свои трекеры</h3>
@@ -223,6 +235,23 @@ function viewHabits() {
       <button class="btn" data-act="hb-new">${I('plus')}Привычка</button>
       ${done.length ? `<h3 class="hb-sec">Завершённые</h3>${done.map(habitCard).join('')}` : ''}
     </div>`;
+}
+
+function viewReductions() {
+  if (S.reductionError) return '<div class="empty">Для сокращений нужно установить обновление базы «10 — Сокращения».</div>';
+  return `<div class="habits">${(S.reductions || []).map((r) => {
+    const entries = (S.reductionEntries || []).filter((e) => e.reduction_id === r.id);
+    const week = entries.filter((e) => e.date >= addDays(today(), -6) && e.date <= today());
+    const average = week.length ? week.reduce((sum, e) => sum + Number(e.amount), 0) / week.length : null;
+    const change = average === null ? null : Math.round((1 - average / r.baseline) * 100);
+    return `<section class="card"><h3>${esc(r.title)}</h3><p>Исходный уровень: ${r.baseline} ${esc(r.unit)} в день</p><p>Среднее за неделю: ${average === null ? 'Нет записей' : average.toFixed(1)}${change === null ? '' : ` · ${change >= 0 ? 'Снижение' : 'Рост'} количества: ${Math.abs(change)}%`}</p><p>Дней с нулём: ${entries.filter((e) => Number(e.amount) === 0).length}</p><label>Дата<input type="date" id="red-date-${r.id}" value="${today()}" max="${today()}"></label><label>Количество (${esc(r.unit)})<input type="number" id="red-amount-${r.id}" min="0" step="1"></label><button class="btn" data-act="red-entry" data-id="${r.id}">${I('check')} Сохранить день</button><div>${entries.slice(-14).map((e) => `<div style="display:flex;align-items:center;gap:8px;margin-top:8px"><span>${esc(e.date)}: ${e.amount}</span><progress aria-label="Количество за ${esc(e.date)}" max="${Math.max(r.baseline, Number(e.amount), 1)}" value="${e.amount}"></progress><button class="link-btn" data-act="red-edit-entry" data-id="${r.id}" data-date="${e.date}" data-amount="${e.amount}">${I('pencil')} Изменить</button></div>`).join('')}</div></section>`;
+  }).join('')}<button class="btn" data-act="red-new">${I('plus')} Новый трекер сокращения</button></div>`;
+}
+
+function openReduction() {
+  const box = $('#logsheet');
+  box.innerHTML = `<div class="sheet-bg" data-act="close-log"></div><div class="sheet"><h3>Новый трекер сокращения</h3><label>Название<input id="red-title" placeholder="Курение"></label><label>Обычно за день<input id="red-baseline" type="number" min="1" step="1"></label><label>Единица измерения<input id="red-unit" value="сигарет"></label><button class="btn" data-act="close-log">Отмена</button><button class="btn primary" data-act="red-save">Создать</button></div>`;
+  box.classList.add('open');
 }
 
 function openHabit(h = null) {
@@ -418,6 +447,11 @@ function viewBoard() {
       </div>`;
   };
   return `<div class="board">${col('todo')}${col('in_progress')}${col('paused')}${col('done')}</div>`;
+}
+
+function viewArchive() {
+  const list = visible(S.archivedTasks || []);
+  return `<section class="group"><h3>Архив (${list.length})</h3>${list.map((t) => `<div class="group"><strong>${esc(t.title)}</strong>${t.notes ? `<p>${esc(t.notes)}</p>` : ''}${t.due_date ? `<p>${esc(t.due_date)}</p>` : ''}<button class="link-btn" data-act="restore-task" data-id="${esc(t.id)}">Вернуть в задачи</button></div>`).join('') || '<div class="empty small">Архив пуст</div>'}</section>`;
 }
 
 function viewSettings() {
@@ -967,17 +1001,31 @@ function logCard(l, { withTask = true } = {}) {
 }
 
 // журнал внутри карточки задачи
+function updateTaskTimer() {
+  const box = $('#task-timer');
+  const task = S.editing;
+  if (!box || !task) return;
+  const running = task.status === 'in_progress' && task.started_at;
+  const seconds = running ? Math.max(0, Math.floor((Date.now() - new Date(task.started_at).getTime()) / 1000)) : 0;
+  const saved = (S.taskLogs || []).filter((l) => l.task_id === task.id).reduce((sum, l) => sum + (Number(l.minutes) || 0), 0);
+  const clock = [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60].map((n) => String(n).padStart(2, '0')).join(':');
+  box.innerHTML = `<div>Сейчас работаю: <strong>${clock}</strong>${task.status === 'paused' ? ' · На паузе' : ''}</div><div>Всего потрачено: <strong>${fmtMin(saved + Math.floor(seconds / 60))}</strong></div>`;
+}
+
 async function fillTaskLogs(taskId) {
   const box = $('#task-logs');
   if (!box) return;
   const logs = await safe(() => db.logsForTask(taskId)) || [];
+  if (S.editing?.id !== taskId || $('#task-logs') !== box) return;
   S.taskLogs = logs;
   const total = logs.reduce((s, l) => s + l.minutes, 0);
   if (!$('#task-logs')) return;
   $('#task-logs').innerHTML = `
     <div class="tl-head"><b>Журнал работы</b>${total ? `<span class="muted">всего ${fmtMin(total)}</span>` : ''}</div>
+    <div id="task-timer" role="timer"></div>
     ${logs.map((l) => logCard(l, { withTask: false })).join('') || '<div class="muted small">Пока пусто. Сюда пишем, что сделано, сколько времени ушло и где лежит результат.</div>'}
     <button class="btn small" data-act="new-log" data-task="${taskId}">+ Записать работу</button>`;
+  updateTaskTimer();
 }
 
 // окно записи о работе
@@ -1495,7 +1543,7 @@ function render() {
     return;
   }
 
-  const viewPlan = () => `<nav class="seg plan-seg">${[['week', 'Неделя'], ['board', 'Доска']].map(([k, l]) => `<button data-plan="${k}" class="${S.planMode === k ? 'on' : ''}">${l}</button>`).join('')}</nav>${S.planMode === 'board' ? viewBoard() : viewWeek()}`;
+  const viewPlan = () => `<nav class="seg plan-seg">${[['week', 'Неделя'], ['board', 'Доска'], ['archive', 'Архив']].map(([k, l]) => `<button data-plan="${k}" class="${S.planMode === k ? 'on' : ''}">${l}</button>`).join('')}</nav>${S.planMode === 'archive' ? viewArchive() : S.planMode === 'board' ? viewBoard() : viewWeek()}`;
   const views = { today: viewToday, plan: viewPlan, health: viewHealth, habits: viewHabits, report: viewReport, settings: viewSettings };
   const tabs = [['today', 'sun', 'Сегодня'], ['plan', 'calendar', 'Задачи'], ['health', 'heart', 'Здоровье'], ['habits', 'flame', 'Привычки'], ['report', 'chart', 'Итоги'], ['settings', 'user', 'Профиль']];
   const keepInput = $('#quick-in')?.value || '';
@@ -1814,6 +1862,13 @@ document.addEventListener('click', async (e) => {
       await safe(() => db.archiveDone(), 'Выполненные убраны в архив');
       reloadSoon();
       break;
+    case 'restore-task': {
+      const task = (S.archivedTasks || []).find((t) => t.id === el.dataset.id);
+      if (!task) break;
+      const restored = await safe(() => db.updateTask(task.id, { archived: false, status: ['done', 'cancelled'].includes(task.status) ? 'todo' : task.status, started_at: null }), 'Задача возвращена');
+      if (restored) reloadSoon();
+      break;
+    }
     case 'copy':
       try { await navigator.clipboard.writeText(el.dataset.text); toast('Ссылка скопирована'); } catch { prompt('Скопируй ссылку:', el.dataset.text); }
       break;
@@ -1824,6 +1879,33 @@ document.addEventListener('click', async (e) => {
     case 'hb-today': toggleHabit(el.dataset.id, today()); break;
     case 'hb-cell': toggleHabit(el.dataset.id, el.dataset.d); break;
     case 'hb-new': openHabit(); break;
+    case 'habit-mode': S.habitMode = el.dataset.mode; render(); break;
+    case 'red-new': openReduction(); break;
+    case 'red-save': {
+      const title = $('#red-title').value.trim(), unit = $('#red-unit').value.trim();
+      const baseline = Number($('#red-baseline').value);
+      if (!title || !unit || !Number.isSafeInteger(baseline) || baseline < 1) { toast('Укажи название, единицу и исходное количество от 1', true); break; }
+      el.disabled = true;
+      const result = await safe(() => db.addReduction({ title, unit, baseline }), 'Трекер создан');
+      el.disabled = false;
+      if (result) { closeLog(); await safe(reload); }
+      break;
+    }
+    case 'red-edit-entry':
+      $(`#red-date-${el.dataset.id}`).value = el.dataset.date;
+      $(`#red-amount-${el.dataset.id}`).value = el.dataset.amount;
+      $(`#red-amount-${el.dataset.id}`).focus();
+      break;
+    case 'red-entry': {
+      const input = $(`#red-amount-${el.dataset.id}`);
+      const date = $(`#red-date-${el.dataset.id}`).value, amount = Number(input.value);
+      if (!input.value.trim() || !Number.isSafeInteger(amount) || amount < 0 || !date || date > today()) { toast('Укажи прошедшую или сегодняшнюю дату и количество от 0', true); break; }
+      el.disabled = true;
+      const result = await safe(() => db.saveReductionEntry({ reduction_id: el.dataset.id, date, amount }), 'День сохранён');
+      el.disabled = false;
+      if (result) await safe(reload);
+      break;
+    }
     case 'hb-edit': openHabit(S.habits.find((h) => h.id === el.dataset.id)); break;
     case 'hb-save': await saveHabit(); break;
     case 'hb-del': {
@@ -2056,6 +2138,7 @@ async function start() {
 
   // вернулась в приложение — обновить
   document.addEventListener('visibilitychange', () => { if (!document.hidden && S.session) reloadSoon(); });
+  setInterval(() => { if (!document.hidden && S.editing) updateTaskTimer(); }, 1000);
   setInterval(() => { if (!document.hidden && S.session) loadEvents(); }, 10 * 60 * 1000);
   // раз в минуту перерисовать (просрочки, смена дня)
   setInterval(() => { if (S.session && !S.editing && document.activeElement?.id !== 'quick-in') render(); }, 60000);

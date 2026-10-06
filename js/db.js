@@ -56,6 +56,21 @@ export const db = {
   async addTask(task) {
     return check(await sb.from('tasks').insert(task).select().single());
   },
+  async archivedTasks() {
+    return check(await sb.from('tasks').select('*').eq('archived', true).order('created_at', { ascending: false }));
+  },
+  async reductions() {
+    return check(await sb.from('reductions').select('*').order('created_at'));
+  },
+  async reductionEntries() {
+    return check(await sb.from('reduction_entries').select('*').order('date'));
+  },
+  async addReduction(row) {
+    return check(await sb.from('reductions').insert(row).select().single());
+  },
+  async saveReductionEntry(row) {
+    return check(await sb.from('reduction_entries').upsert(row, { onConflict: 'reduction_id,date' }).select().single());
+  },
   async updateTask(id, patch) {
     return check(await sb.from('tasks').update(patch).eq('id', id).select().single());
   },
