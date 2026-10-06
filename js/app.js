@@ -185,8 +185,12 @@ function habitStrip() {
           <span class="hb-count">${st.done} / ${h.days}</span>
         </button>`; }).join('')}${(S.reductions || []).map((r) => {
           const entry = (S.reductionEntries || []).find((e) => e.reduction_id === r.id && e.date === today());
-          const pct = entry ? Math.max(0, Math.min(100, (1 - Number(entry.amount) / r.baseline) * 100)) : 0;
-          return `<button class="hb-dot" data-act="red-open" data-id="${r.id}" style="${pcVars(CAT_COLORS[1])}" title="${esc(r.title)}"><span class="hb-ring"><svg class="hb-progress" viewBox="0 0 64 64" aria-hidden="true"><circle class="hb-progress-track" cx="32" cy="32" r="27"/><circle class="hb-progress-fill" cx="32" cy="32" r="27" pathLength="100" stroke-dasharray="${pct} 100" style="${pct ? '' : 'visibility:hidden'}"/></svg>${I('leaf')}</span><span class="hb-name">${esc(r.title)}</span><span class="hb-count">${entry ? `${entry.amount} / ${r.baseline}` : 'Нет записи'}</span></button>`;
+          const duration = r.days || 21;
+          const start = r.start_date || r.created_at?.slice(0, 10) || today();
+          const end = addDays(start, duration - 1);
+          const recorded = (S.reductionEntries || []).filter((e) => e.reduction_id === r.id && e.date >= start && e.date <= end && e.date <= today()).length;
+          const pct = Math.min(100, recorded / duration * 100);
+          return `<button class="hb-dot" data-act="red-open" data-id="${r.id}" style="${pcVars(CAT_COLORS[1])}" title="${esc(r.title)}"><span class="hb-ring"><svg class="hb-progress" viewBox="0 0 64 64" aria-hidden="true"><circle class="hb-progress-track" cx="32" cy="32" r="27"/><circle class="hb-progress-fill" cx="32" cy="32" r="27" pathLength="100" stroke-dasharray="${pct} 100" style="${pct ? '' : 'visibility:hidden'}"/></svg>${I('leaf')}</span><span class="hb-name">${esc(r.title)}</span><span class="hb-count">${recorded} / ${duration}</span></button>`;
         }).join('')}</div>
     </section>`;
 }
@@ -256,7 +260,7 @@ function viewReductions() {
 
 function openReduction() {
   const box = $('#logsheet');
-  box.innerHTML = `<div class="sheet-bg" data-act="close-log"></div><div class="sheet"><div class="sheet-top"><div class="sheet-handle"></div><button class="close-x" data-act="close-log" aria-label="Закрыть">${I('x')}</button></div><h3 class="sheet-h">Новый трекер сокращения</h3><label>Название<input class="plain-in" type="text" id="red-title" placeholder="Курение"></label><label>Обычно за день<input id="red-baseline" type="number" min="1" step="1"></label><label>Единица измерения<input class="plain-in" type="text" id="red-unit" value="сигарет"></label><div class="sheet-actions"><button class="btn" data-act="close-log">Отмена</button><button class="btn primary" data-act="red-save">Создать</button></div></div>`;
+  box.innerHTML = `<div class="sheet-bg" data-act="close-log"></div><div class="sheet"><div class="sheet-top"><div class="sheet-handle"></div><button class="close-x" data-act="close-log" aria-label="Закрыть">${I('x')}</button></div><h3 class="sheet-h">Новый трекер сокращения</h3><label>Название<input class="plain-in" type="text" id="red-title" placeholder="Курение"></label><label>Сколько дней</label><div class="quick">${HB_DAYS.map((n) => `<button data-rdays="${n}" class="${n === 21 ? 'on' : ''}">${n}</button>`).join('')}</div><input id="red-days" type="number" min="1" max="365" value="21"><label>Обычно за день<input id="red-baseline" type="number" min="1" step="1"></label><label>Единица измерения<input class="plain-in" type="text" id="red-unit" value="сигарет"></label><div class="sheet-actions"><button class="btn" data-act="close-log">Отмена</button><button class="btn primary" data-act="red-save">Создать</button></div></div>`;
   box.classList.add('open');
 }
 
@@ -1548,11 +1552,12 @@ function render() {
   const app = $('#app');
   if (!S.session) {
     app.innerHTML = `
-      <form class="login" id="login">
+      <form class="login" id="login" novalidate>
         <div class="logo">${I('sparkle')}</div>
         <h1>Планер</h1>
         <input type="email" name="email" placeholder="Почта" autocomplete="username" required>
         <input type="password" name="password" placeholder="Пароль" autocomplete="current-password" required>
+        <div id="login-error" class="login-error" role="alert" hidden></div>
         <button class="btn primary" type="submit">Войти</button>
       </form>`;
     return;
@@ -1625,6 +1630,7 @@ document.addEventListener('click', async (e) => {
   if (el.dataset.min) { $('#lg-min').value = el.dataset.min; return; }
   if (el.closest('#hb-icons') || el.closest('#hb-colors')) { el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el)); if (el.closest('#hb-colors')) $('#hb-icons').setAttribute('style', pcVars(el.dataset.v)); return; }
   if (el.dataset.hdays) { $('#hb-days').value = el.dataset.hdays; el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el)); return; }
+  if (el.dataset.rdays) { $('#red-days').value = el.dataset.rdays; el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el)); return; }
   if (el.closest('#lg-author')) { // можно несколько: работали вместе
     const others = [...el.parentElement.querySelectorAll('.on')].filter((b) => b !== el);
     if (!el.classList.contains('on') || others.length) el.classList.toggle('on');
@@ -1899,9 +1905,11 @@ document.addEventListener('click', async (e) => {
     case 'red-save': {
       const title = $('#red-title').value.trim(), unit = $('#red-unit').value.trim();
       const baseline = Number($('#red-baseline').value);
+      const days = Number($('#red-days').value);
+      if (!Number.isSafeInteger(days) || days < 1 || days > 365) { toast('Выбери срок от 1 до 365 дней', true); break; }
       if (!title || !unit || !Number.isSafeInteger(baseline) || baseline < 1) { toast('Укажи название, единицу и исходное количество от 1', true); break; }
       el.disabled = true;
-      const result = await safe(() => db.addReduction({ title, unit, baseline }), 'Трекер создан');
+      const result = await safe(() => db.addReduction({ title, unit, baseline, days, start_date: today() }), 'Трекер создан');
       el.disabled = false;
       if (result) { closeLog(); await safe(reload); }
       break;
@@ -2062,11 +2070,21 @@ document.addEventListener('input', (e) => {
 document.addEventListener('submit', async (e) => {
   e.preventDefault();
   if (e.target.id === 'login') {
+    const email = e.target.elements.email;
+    const password = e.target.elements.password;
+    const error = $('#login-error');
+    const message = !email.value.trim() ? 'Укажи почту' : email.validity.typeMismatch ? 'Проверь адрес почты' : !password.value ? 'Введи пароль' : '';
+    email.removeAttribute('aria-invalid'); password.removeAttribute('aria-invalid');
+    error.hidden = !message; error.textContent = message;
+    if (message) {
+      const field = !email.value.trim() || email.validity.typeMismatch ? email : password;
+      field.setAttribute('aria-invalid', 'true'); field.focus(); return;
+    }
     const f = new FormData(e.target);
     const btn = e.target.querySelector('button');
     btn.disabled = true; btn.textContent = 'Входим…';
     try { await db.signIn(f.get('email'), f.get('password')); }
-    catch { toast('Неверная почта или пароль', true); btn.disabled = false; btn.textContent = 'Войти'; }
+    catch { error.hidden = false; error.textContent = 'Не удалось войти. Проверь почту, пароль и подключение к интернету.'; btn.disabled = false; btn.textContent = 'Войти'; }
   }
   if (e.target.id === 'quick') {
     const inp = $('#quick-in');
