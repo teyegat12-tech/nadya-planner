@@ -470,7 +470,7 @@ function viewBoard() {
 
 function viewArchive() {
   const list = visible(S.archivedTasks || []);
-  return `<section class="group"><h3>Архив (${list.length})</h3>${list.map((t) => `<div class="group"><strong>${esc(t.title)}</strong>${t.notes ? `<p>${esc(t.notes)}</p>` : ''}${t.due_date ? `<p>${esc(t.due_date)}</p>` : ''}<button class="link-btn" data-act="restore-task" data-id="${esc(t.id)}">Вернуть в задачи</button></div>`).join('') || '<div class="empty small">Архив пуст</div>'}</section>`;
+  return `<section class="group archive-list"><h3>Архив (${list.length})</h3>${list.map((t) => `<article class="archive-task"><div class="archive-title">${esc(t.title)}</div>${t.notes ? `<p class="archive-notes">${esc(t.notes)}</p>` : ''}<div class="archive-footer">${t.due_date ? `<time class="archive-date" datetime="${esc(t.due_date)}">${esc(fmtDateRu(t.due_date))}</time>` : ''}<button class="link-btn archive-restore" data-act="restore-task" data-id="${esc(t.id)}">Вернуть в задачи</button></div></article>`).join('') || '<div class="empty small">Архив пуст</div>'}</section>`;
 }
 
 function viewSettings() {
