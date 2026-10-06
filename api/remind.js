@@ -99,7 +99,8 @@ export default async function handler(req, res) {
         const total = logs.reduce((a, l) => a + l.minutes, 0);
         const byA = {}, byT = {};
         for (const l of logs) {
-          byA[l.author] = (byA[l.author] || 0) + l.minutes;
+          const who = String(l.author || 'me').split('+').filter(Boolean); // совместная работа — время делится поровну
+          for (const w of who) byA[w] = (byA[w] || 0) + Math.round(l.minutes / who.length);
           const k = l.tasks?.title || 'Без задачи';
           byT[k] = (byT[k] || 0) + l.minutes;
         }

@@ -79,14 +79,18 @@ export const CAT_PRESETS = [
   ['Работа', 'briefcase'], ['Финансы', 'wallet'], ['Друзья', 'users'],
 ];
 export const CAT_MAX = 9;
+// палитра «Пластилин+» (матовая): начало → конец мягкого градиента
+export const CAT_GRAD = { '#ee4f59': '#f38e86', '#f16f55': '#f6ad8e', '#f8984f': '#fac989', '#f7c245': '#fae580', '#91d345': '#a0df77', '#4dcb51': '#7dd98c', '#4ed093': '#7eddbd', '#2dbea1': '#51d6cd', '#25b4d0': '#52b6e0', '#359ee9': '#6ca7ef', '#537bea': '#8997f0', '#9b77ee': '#ccadf5', '#c973de': '#e5a4ea', '#da62b6': '#e694c2', '#d34583': '#df7796', '#7a7788': '#9a97a5' };
+export const CAT_COLORS = Object.keys(CAT_GRAD);
 // старые «грязные» цвета → новые чистые (для уже сохранённых категорий)
-export const COLOR_FIX = {"#9d8ad6": "#9a7cfa", "#ec9a72": "#ff914d", "#8fb59a": "#5ccb8a", "#e38fae": "#fa7bae", "#8fa6cc": "#6c9ef5", "#a7a3b8": "#a69cd6", "#a08af0": "#9a7cfa", "#fa9a5e": "#ff914d", "#76c592": "#5ccb8a", "#f288b3": "#fa7bae", "#7ea9ec": "#6c9ef5", "#aaa5c8": "#a69cd6"};
+export const COLOR_FIX = {"#9d8ad6": "#9b77ee", "#ec9a72": "#f8984f", "#8fb59a": "#4ed093", "#e38fae": "#da62b6", "#8fa6cc": "#359ee9", "#a7a3b8": "#c973de", "#a08af0": "#9b77ee", "#fa9a5e": "#f8984f", "#76c592": "#4ed093", "#f288b3": "#da62b6", "#7ea9ec": "#359ee9", "#aaa5c8": "#c973de", "#9a7cfa": "#9b77ee", "#ff914d": "#f8984f", "#5ccb8a": "#4ed093", "#fa7bae": "#da62b6", "#6c9ef5": "#359ee9", "#a69cd6": "#c973de", "#6f6d7a": "#7a7788"};
 export const fixColor = (c) => COLOR_FIX[(c || '').toLowerCase()] || c;
-export const CAT_COLORS = ['#9a7cfa', '#ff914d', '#5ccb8a', '#fa7bae', '#6c9ef5', '#a69cd6', '#6f6d7a'];
+// css-переменные цвета: --pc начало, --pc2 конец градиента
+export const pcVars = (c) => { const a = (fixColor(c) || '#c973de').toLowerCase(); return `--pc:${a};--pc2:${CAT_GRAD[a] || a}`; };
 const EMOJI_MAP = { '📚': 'book', '💪': 'dumbbell', '🧩': 'puzzle', '✨': 'sparkle', '🌿': 'leaf' };
 export const catIcon = (c) => (P[c?.emoji] ? c.emoji : EMOJI_MAP[c?.emoji] || 'tag');
 export function plate(c, cls = '') {
-  return `<span class="plate ${cls}" style="--pc:${c?.color || '#a69cd6'}">${I(catIcon(c))}</span>`;
+  return `<span class="plate ${cls}" style="${pcVars(c?.color)}">${I(catIcon(c))}</span>`;
 }
 
 export function I(name, cls = '') {

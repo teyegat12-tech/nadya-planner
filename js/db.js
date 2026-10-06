@@ -193,6 +193,28 @@ export const db = {
     return j;
   },
 
+  // ---------- трекеры привычек ----------
+  async habits() {
+    return check(await sb.from('habits').select('*').order('created_at'));
+  },
+  async addHabit(row) {
+    return check(await sb.from('habits').insert(row).select().single());
+  },
+  async updateHabit(id, patch) {
+    return check(await sb.from('habits').update(patch).eq('id', id).select().single());
+  },
+  async deleteHabit(id) {
+    check(await sb.from('habit_checks').delete().eq('habit_id', id));
+    check(await sb.from('habits').delete().eq('id', id));
+  },
+  async habitChecks() {
+    return check(await sb.from('habit_checks').select('habit_id,date'));
+  },
+  async setHabitCheck(habit_id, date, on) {
+    if (on) check(await sb.from('habit_checks').upsert({ habit_id, date }, { onConflict: 'habit_id,date' }));
+    else check(await sb.from('habit_checks').delete().eq('habit_id', habit_id).eq('date', date));
+  },
+
   // Живая синхронизация: любое изменение на другом устройстве → cb()
   subscribe(cb) {
     const ch = sb.channel('planner-sync')
@@ -202,6 +224,8 @@ export const db = {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'health_daily' }, cb)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'food_log' }, cb)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'water_log' }, cb)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'habits' }, cb)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'habit_checks' }, cb)
       .subscribe();
     return () => sb.removeChannel(ch);
   },

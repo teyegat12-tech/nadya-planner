@@ -1908,3 +1908,112 @@ body { background: linear-gradient(170deg, #F5F3F9 0%, #E3E1EA 55%, #C9C3D8 100%
 .chips.days { display: grid !important; grid-template-columns: repeat(7, minmax(0,1fr)); gap: 6px; }
 .chips.days.hidden { display: none !important; }
 .chips.days button { padding-left: 0 !important; padding-right: 0 !important; min-width: 0; justify-content: center; }
+
+/* ---------- шаг 20: время как дата, ровные поля профиля, время событий ---------- */
+.sheet .grid2 { align-items: start; }
+.tp-pop { left: auto; right: 0; width: 304px; }
+.tp-lbl { font: 400 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 2px 4px 8px; }
+.tp-lbl + .tp-grid { margin-bottom: 12px; }
+.tp-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.tp-grid button { height: 36px; border-radius: 999px; font: 500 13px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--text); display: grid; place-items: center; transition: background-color .15s, transform .15s; }
+@media (hover: hover) { .tp-grid button:hover { background: #fff; } }
+.tp-grid button:active { transform: scale(.92); }
+.tp-grid button.sel { background: var(--grad-hot) !important; color: #fff; font-weight: 800; }
+@media (max-width: 420px) { .tp-pop { right: -4px; } .dp-pop:not(.tp-pop) { left: -4px; } }
+
+/* профиль: число и единица всегда в одном месте — единица фиксированной ширины */
+.pf-f > div { gap: 8px; }
+.pf-f em { flex: none; width: 24px; text-align: left; }
+
+/* события: начало и конец выровнены по правому краю колонки времени */
+.ev-time { text-align: right; font-variant-numeric: tabular-nums; }
+/* совместная запись о работе: точки участников внахлёст */
+.log-head .who .dots { display: inline-flex; }
+.log-head .who .dots .dot + .dot { margin-left: -3px; box-shadow: 0 0 0 1.5px var(--card); }
+.lg-hint { font: 400 12.5px/1.4 var(--font); color: var(--muted); margin: -4px 0 4px; }
+.sheet p.lg-hint { text-transform: none !important; letter-spacing: 0 !important; font: 400 12.5px/1.4 var(--font) !important; color: var(--muted) !important; margin: -2px 0 6px !important; padding: 0 !important; }
+/* пилюли статусов: текст капсом точно по центру — строка обрезается до высоты заглавных,
+   а отступы сверху/снизу считаются от неё (Safari 18.2+, Chrome 133+; в старых — почти так же) */
+@supports (text-box: trim-both cap alphabetic) {
+  .status, .badge { display: inline-block !important; height: auto !important; line-height: 1 !important;
+    text-box: trim-both cap alphabetic; padding-top: calc((22px - 1cap) / 2) !important; padding-bottom: calc((22px - 1cap) / 2) !important; }
+  .pick .status { padding-top: calc((30px - 1cap) / 2) !important; padding-bottom: calc((30px - 1cap) / 2) !important; }
+}
+
+/* ---------- шаг 22: трекеры привычек ---------- */
+.habits { display: flex; flex-direction: column; gap: 14px; }
+.habit { display: flex; flex-direction: column; gap: 14px; }
+.habit.finished { opacity: .72; }
+.hb-head { display: flex; align-items: center; gap: 14px; }
+.hb-t { flex: 1; min-width: 0; }
+.hb-title { font: 600 17px/1.25 var(--font); color: var(--text); overflow-wrap: anywhere; }
+.hb-sub { font: 400 12.5px/1.35 var(--font); color: var(--muted); margin-top: 3px; }
+.hb-today { flex: none; width: 52px; height: 52px; border-radius: 50%; background: #fff; color: var(--muted); display: grid; place-items: center; border: 0; cursor: pointer; transition: transform .15s, background .2s; }
+.hb-today .ic { width: 22px; height: 22px; stroke-width: 2.2; }
+.hb-today.on { background: var(--pc); color: #fff; }
+.hb-today:active { transform: scale(.92); }
+.hb-bar { height: 6px; border-radius: 999px; background: rgba(255,255,255,.7); overflow: hidden; }
+.hb-bar i { display: block; height: 100%; border-radius: inherit; background: var(--pc); transition: width .3s; }
+.hb-grid { display: grid; grid-template-columns: repeat(7, 34px); gap: 8px; justify-content: start; }
+.hb-cell { width: 34px; height: 34px; border-radius: 50%; border: 0; background: #fff; color: var(--title); font: 500 11px/1 var(--mono); display: grid; place-items: center; cursor: pointer; padding: 0; transition: transform .15s, background .2s; }
+.hb-cell .ic { width: 15px; height: 15px; stroke-width: 2.4; }
+.hb-cell.on { background: var(--pc); color: #fff; }
+.hb-cell.miss { background: rgba(255,255,255,.35); color: var(--muted); }
+.hb-cell.future { background: rgba(255,255,255,.3); color: rgba(80,79,86,.35); cursor: default; }
+.hb-cell.today:not(.on) { box-shadow: inset 0 0 0 1.5px var(--pc); }
+.hb-cell:not(:disabled):active { transform: scale(.88); }
+@media (min-width: 700px) { .hb-grid { grid-template-columns: repeat(14, 34px); } }
+.hb-foot { display: flex; justify-content: space-between; }
+.hb-foot .link-btn { margin: 0; padding: 4px 0; }
+.hb-sec { font: 800 14px var(--font); font-stretch: 151%; font-variation-settings: 'wdth' 151; text-transform: uppercase; color: var(--title); margin: 12px 6px 0; }
+.hb-empty p { margin-left: 27px; margin-top: -7px; font: 400 12.5px/1.45 var(--font); color: var(--muted); }
+
+/* «Сегодня»: строка кружков */
+.hb-strip { margin: 6px 0 18px; }
+.hb-strip-head { display: flex; align-items: center; justify-content: space-between; margin: 0 6px 12px; }
+.hb-strip-head h3 { display: flex; align-items: center; gap: 8px; margin: 0; font: 800 14px var(--font); font-stretch: 151%; font-variation-settings: 'wdth' 151; text-transform: uppercase; color: var(--title); }
+.hb-strip-head h3 .ic { color: var(--muted); }
+.hb-strip-head .link-btn { margin: 0; padding: 4px; }
+.hb-row { display: flex; gap: 14px; overflow-x: auto; padding: 2px 6px 4px; scrollbar-width: none; }
+.hb-row::-webkit-scrollbar { display: none; }
+.hb-dot { flex: none; width: 64px; display: flex; flex-direction: column; align-items: center; gap: 6px; background: none; border: 0; padding: 0; cursor: pointer; }
+.hb-ring { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; background: #fff; color: var(--pc); box-shadow: inset 0 0 0 2px var(--pc); transition: transform .15s, background .2s; }
+.hb-ring .ic { width: 22px; height: 22px; stroke-width: 2; }
+.hb-dot.on .hb-ring { background: var(--pc); color: #fff; box-shadow: none; }
+.hb-dot:active .hb-ring { transform: scale(.9); }
+.hb-name { width: 100%; font: 400 11px/1.25 var(--font); color: var(--title); text-align: center; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* окно привычки */
+.hb-icons { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.hb-icons button { aspect-ratio: 1; border-radius: 14px; background: #fff; color: var(--title); display: grid; place-items: center; border: 0; padding: 0; }
+.hb-icons button .ic { width: 20px; height: 20px; }
+.hb-icons button.on { background: var(--pc); color: #fff; }
+.hb-colors { display: flex; gap: 10px; flex-wrap: wrap; }
+.hb-colors button { width: 34px; height: 34px; border-radius: 50%; background: var(--pc); border: 0; padding: 0; }
+.hb-colors button.on { box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--pc); }
+.sheet .quick button.on { background: var(--grad-hot); color: #fff; }
+.hb-cell.on .ic, .hb-today.on .ic, .hb-dot.on .hb-ring .ic, .hb-icons button.on .ic { color: #fff !important; }
+.hb-ring .ic { color: var(--pc) !important; }
+.hb-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
+.hb-cell { width: 100%; height: auto; aspect-ratio: 1; max-width: 44px; justify-self: center; }
+@media (min-width: 700px) { .hb-grid { grid-template-columns: repeat(14, minmax(0, 1fr)); } }
+/* нижнее меню на 6 кнопок: кнопки сжимаются на узких экранах, ничего не вылезает */
+.tabs { width: min(380px, calc(100% - 28px)) !important; box-sizing: border-box; gap: 0 !important; }
+.tabs button { flex: 1 1 0 !important; width: auto !important; min-width: 0 !important; max-width: 46px !important; aspect-ratio: 1; height: auto !important; }
+/* привычки: иконка и галочка по центру первой строки названия; галочка компактнее — больше места заголовку */
+.hb-head { align-items: flex-start; gap: 12px; }
+.hb-head .plate { --s: 40px; }
+.hb-t { padding-top: calc((40px - 1.25em) / 2); }
+.hb-title { font-size: 17px; }
+.hb-today { width: 40px; height: 40px; }
+.hb-today .ic { width: 18px; height: 18px; }
+
+/* ---------- шаг 23: палитра «Сочная» — плашки, пилюли и отметки градиентом 135° ---------- */
+.plate, .swatch, .hb-today.on, .hb-cell.on, .hb-dot.on .hb-ring, .hb-icons button.on, .hb-colors button,
+.cat-chip:not(.none):not(.add) {
+  background: linear-gradient(135deg, var(--pc), var(--pc2, var(--pc))) !important;
+}
+.hb-bar i { background: linear-gradient(90deg, var(--pc), var(--pc2, var(--pc))) !important; }
+.hb-ring { box-shadow: inset 0 0 0 2px var(--pc); }
+/* привычки: подпись «День N из M…» под иконкой во всю ширину, над полосой */
+.habit .hb-sub { margin: -4px 0 -6px; }

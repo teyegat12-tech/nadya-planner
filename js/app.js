@@ -1,6 +1,6 @@
 import { db } from './db.js';
 import { BOT_USERNAME } from './config.js';
-import { I, plate, catIcon, CAT_ICONS, CAT_COLORS, CAT_PRESETS, CAT_MAX, fixColor } from './icons.js';
+import { I, plate, catIcon, CAT_ICONS, CAT_COLORS, CAT_PRESETS, CAT_MAX, fixColor, pcVars } from './icons.js';
 import { playDone, playDayDone, playUndo, buzz, burst, celebrate, isSoundOn, setSound } from './fx.js';
 import {
   ymd, addDays, humanDate, shortTime, parseQuick, repeatLabel, isoDow, DOW_SHORT, DOW_FULL, parseYmd,
@@ -18,6 +18,8 @@ const S = {
   editing: null, // задача в окне редактирования
   showDone: false,
   feeds: [],
+  habits: [],
+  hchecks: new Set(),
   events: load('events', []), // события из календарей Google / iCloud
   evErrors: [],
 };
@@ -66,8 +68,9 @@ async function safe(fn, okMsg) {
 
 // ---------- загрузка данных ----------
 async function reload() {
-  const [tasks, cats, settings, rework, feeds] = await Promise.all([db.tasks(), db.categories(), db.settings(), db.reworkIds().catch(() => []), db.feeds().catch(() => [])]);
+  const [tasks, cats, settings, rework, feeds, habits, hchecks] = await Promise.all([db.tasks(), db.categories(), db.settings(), db.reworkIds().catch(() => []), db.feeds().catch(() => []), db.habits().catch(() => []), db.habitChecks().catch(() => [])]);
   S.feeds = feeds;
+  S.habits = habits; S.hchecks = new Set(hchecks.map((c) => hKey(c.habit_id, c.date)));
   S.rework = new Set(rework);
   // задачи, поставленные «В процессе» до включения таймера, — запускаем отсчёт сейчас
   for (const t of tasks) if (t.status === 'in_progress' && !t.started_at) {
@@ -112,7 +115,7 @@ function eventRow(e) {
       <div class="ev-time">${e.all_day ? 'весь<br>день' : `${e.start}${e.end ? `<small>${e.end}</small>` : ''}`}</div>
       <div class="ev-body">
         <div class="ev-title">${esc(e.title)}</div>
-        <div class="ev-meta"><span class="ev-dot" style="background:${f?.color || '#a69cd6'}"></span>${esc(f?.name || 'Календарь')}${e.location ? ` · ${esc(e.location)}` : ''}</div>
+        <div class="ev-meta"><span class="ev-dot" style="background:${fixColor(f?.color) || '#c973de'}"></span>${esc(f?.name || 'Календарь')}${e.location ? ` · ${esc(e.location)}` : ''}</div>
       </div>
       <button class="ev-add" data-act="ev-task" data-key="${esc(e.key)}" aria-label="Сделать задачей" title="Сделать задачей">${I('plus')}</button>
     </div>`;
@@ -136,6 +139,145 @@ function dayRows(tasks, evs, opts = {}, ghosts = []) {
     ...evs.map((e) => ({ k: e.all_day ? '0' : '1' + e.start, h: eventRow(e) })),
   ];
   return items.sort((a, b) => a.k.localeCompare(b.k)).map((x) => x.h).join('');
+}
+
+// ---------- трекеры привычек ----------
+const hKey = (id, d) => `${id}|${d}`;
+const daysBetween = (a, b) => Math.round((parseYmd(b) - parseYmd(a)) / 864e5);
+const HB_ICONS = ['flame', 'heart', 'book', 'run', 'yoga', 'drop', 'moon', 'leaf', 'brain', 'pen', 'music', 'star', 'coffee', 'walk', 'dumbbell', 'sparkle'];
+const HB_DAYS = [7, 14, 21, 30, 66, 100];
+const hbPlate = (h, cls = '') => plate({ emoji: h.icon, color: h.color }, cls);
+
+function habitStats(h) {
+  const td = today();
+  const end = addDays(h.start_date, h.days - 1);
+  let done = 0;
+  for (let i = 0; i < h.days; i++) if (S.hchecks.has(hKey(h.id, addDays(h.start_date, i)))) done++;
+  const todayOn = S.hchecks.has(hKey(h.id, td));
+  let streak = 0; let d = todayOn ? td : addDays(td, -1);
+  while (d >= h.start_date && S.hchecks.has(hKey(h.id, d))) { streak++; d = addDays(d, -1); }
+  const dayN = Math.min(h.days, Math.max(0, daysBetween(h.start_date, td) + 1));
+  const complete = done >= h.days;
+  return { done, streak, end, dayN, todayOn, complete, finished: complete || td > end || h.archived, active: !h.archived && !complete && h.start_date <= td && td <= end };
+}
+const plural = (n, a, b, c) => { const m = n % 10, mm = n % 100; return m === 1 && mm !== 11 ? a : m >= 2 && m <= 4 && (mm < 12 || mm > 14) ? b : c; };
+
+// быстрые кружки на «Сегодня»
+function habitStrip() {
+  const act = S.habits.filter((h) => habitStats(h).active);
+  if (!act.length) return '';
+  return `
+    <section class="hb-strip">
+      <div class="hb-strip-head"><h3>${I('flame', 'sm')} Привычки</h3><button class="link-btn" data-view="habits">Все</button></div>
+      <div class="hb-row">${act.map((h) => { const st = habitStats(h); return `
+        <button class="hb-dot ${st.todayOn ? 'on' : ''}" data-act="hb-today" data-id="${h.id}" style="${pcVars(h.color)}" title="${esc(h.title)}">
+          <span class="hb-ring">${st.todayOn ? I('check') : I(catIcon({ emoji: h.icon }))}</span>
+          <span class="hb-name">${esc(h.title)}</span>
+        </button>`; }).join('')}</div>
+    </section>`;
+}
+
+function habitCard(h) {
+  const st = habitStats(h); const td = today();
+  const cells = [];
+  for (let i = 0; i < h.days; i++) {
+    const d = addDays(h.start_date, i);
+    const on = S.hchecks.has(hKey(h.id, d));
+    const cls = on ? 'on' : d > td ? 'future' : d === td ? '' : 'miss';
+    cells.push(`<button class="hb-cell ${cls} ${d === td ? 'today' : ''}" data-act="hb-cell" data-id="${h.id}" data-d="${d}" ${d > td ? 'disabled' : ''} title="${humanDate(d, td)}">${on ? I('check') : i + 1}</button>`);
+  }
+  const sub = st.complete ? `Пройдено: ${h.days} из ${h.days}`
+    : st.finished ? `Срок вышел · отмечено ${st.done} из ${h.days}`
+    : h.start_date > td ? `Старт ${humanDate(h.start_date, td)}`
+    : `День ${st.dayN} из ${h.days} · отмечено ${st.done}`;
+  return `
+    <section class="card habit ${st.finished ? 'finished' : ''}" style="${pcVars(h.color)}">
+      <div class="hb-head">
+        ${hbPlate(h)}
+        <div class="hb-t">
+          <div class="hb-title">${esc(h.title)}</div>
+        </div>
+        ${st.active ? `<button class="hb-today ${st.todayOn ? 'on' : ''}" data-act="hb-today" data-id="${h.id}" aria-label="Отметить сегодня">${I('check')}</button>` : ''}
+      </div>
+      <div class="hb-sub">${sub}${st.streak > 1 && !st.finished ? ` · серия ${st.streak} ${plural(st.streak, 'день', 'дня', 'дней')}` : ''}</div>
+      <div class="hb-bar"><i style="width:${Math.round((st.done / h.days) * 100)}%"></i></div>
+      <div class="hb-grid">${cells.join('')}</div>
+      <div class="hb-foot">
+        <button class="link-btn" data-act="hb-edit" data-id="${h.id}">Изменить</button>
+        ${st.finished ? `<button class="link-btn" data-act="hb-restart" data-id="${h.id}">Начать заново</button>` : ''}
+      </div>
+    </section>`;
+}
+
+function viewHabits() {
+  const list = S.habits.map((h) => [h, habitStats(h)]);
+  const going = list.filter(([, st]) => !st.finished).map(([h]) => h);
+  const done = list.filter(([, st]) => st.finished).map(([h]) => h);
+  return `
+    <div class="habits">
+      ${going.length ? going.map(habitCard).join('') : `
+        <section class="card hb-empty">
+          <h3>${I('flame')} Свои трекеры</h3>
+          <p>Придумай привычку и срок — 21 день, месяц или сколько хочешь. Каждый день отмечай галочкой здесь или прямо в «Сегодня».</p>
+        </section>`}
+      <button class="btn" data-act="hb-new">${I('plus')}Привычка</button>
+      ${done.length ? `<h3 class="hb-sec">Завершённые</h3>${done.map(habitCard).join('')}` : ''}
+    </div>`;
+}
+
+function openHabit(h = null) {
+  S.hbEditing = h;
+  const color = (fixColor(h?.color) || '').toLowerCase() || CAT_COLORS[S.habits.length % CAT_COLORS.length];
+  const icon = h?.icon || 'flame';
+  const days = h?.days || 21;
+  const box = $('#logsheet');
+  box.innerHTML = `
+    <div class="sheet-bg" data-act="close-log"></div>
+    <div class="sheet">
+      <div class="sheet-top"><div class="sheet-handle"></div><button class="close-x" data-act="close-log" aria-label="Закрыть">${I('x')}</button></div>
+      <h3 class="sheet-h">${h ? 'Привычка' : 'Новая привычка'}</h3>
+      <label>Название</label>
+      <input id="hb-title" class="plain-in" value="${esc(h?.title || '')}" placeholder="Например: без сахара" maxlength="60">
+      <label>Сколько дней</label>
+      <div class="quick">${HB_DAYS.map((n) => `<button data-hdays="${n}" class="${n === days ? 'on' : ''}">${n}</button>`).join('')}</div>
+      <input id="hb-days" type="number" min="1" max="365" value="${days}">
+      <label>Иконка</label>
+      <div class="hb-icons" id="hb-icons" style="${pcVars(color)}">${HB_ICONS.map((i) => `<button data-v="${i}" class="${i === icon ? 'on' : ''}">${I(i)}</button>`).join('')}</div>
+      <label>Цвет</label>
+      <div class="hb-colors" id="hb-colors">${CAT_COLORS.map((c) => `<button data-v="${c}" class="${c === color ? 'on' : ''}" style="${pcVars(c)}" aria-label="Цвет"></button>`).join('')}</div>
+      <div class="sheet-actions">
+        ${h ? '<button class="btn danger-ghost" data-act="hb-del">Удалить</button>' : '<button class="btn" data-act="close-log">Отмена</button>'}
+        <button class="btn primary" data-act="hb-save">${h ? 'Сохранить' : 'Начать'}</button>
+      </div>
+    </div>`;
+  box.classList.add('open');
+  if (!h) setTimeout(() => $('#hb-title')?.focus(), 50);
+}
+
+async function saveHabit() {
+  const title = $('#hb-title').value.trim();
+  if (!title) { toast('Напиши, какая привычка', true); return; }
+  const days = Math.min(365, Math.max(1, Math.round(Number($('#hb-days').value) || 21)));
+  const row = { title, days, icon: $('#hb-icons .on')?.dataset.v || 'flame', color: $('#hb-colors .on')?.dataset.v || CAT_COLORS[0] };
+  const ed = S.hbEditing;
+  const res = await safe(() => (ed ? db.updateHabit(ed.id, row) : db.addHabit(row)), ed ? 'Сохранено' : 'Поехали! День 1');
+  if (!res) return;
+  if (ed) Object.assign(ed, res); else S.habits.push(res);
+  closeLog(); render();
+}
+
+async function toggleHabit(id, d) {
+  const h = S.habits.find((x) => x.id === id); if (!h) return;
+  const k = hKey(id, d); const on = !S.hchecks.has(k);
+  const wasComplete = habitStats(h).complete;
+  on ? S.hchecks.add(k) : S.hchecks.delete(k);
+  render();
+  if (on) {
+    buzz(); playDone();
+    if (!wasComplete && habitStats(h).complete) { celebrate(); toast(`«${h.title}» — пройдено целиком!`); }
+  }
+  try { await db.setHabitCheck(id, d, on); }
+  catch (e) { on ? S.hchecks.delete(k) : S.hchecks.add(k); render(); toast('Не сохранилось — проверь интернет', true); }
 }
 
 let reloadTimer;
@@ -213,6 +355,7 @@ function viewToday() {
       </div>
       ${progressRing()}
     </div>
+    ${habitStrip()}
     ${section(`${I('alert', 'sm')} Просрочено`, overdue, { showDate: true })}
     ${section('Сегодня', todays, { always: true, empty: 'На сегодня ничего — красота', events: eventsOn(td) })}
     ${section(`${I('inbox', 'sm')} Без даты`, inbox)}
@@ -341,7 +484,7 @@ function viewSettings() {
           let host = ''; try { host = new URL(f.url.replace(/^webcals?:/i, 'https:')).hostname.replace(/^p\d+-caldav\./, ''); } catch {}
           return `
           <div class="feed-row" data-id="${f.id}">
-            <span class="ev-dot big" style="background:${f.color || '#a69cd6'}"></span>
+            <span class="ev-dot big" style="background:${fixColor(f.color) || '#c973de'}"></span>
             <div class="feed-txt"><div class="feed-name">${esc(f.name)}</div><div class="feed-host ${err || S.evApiError ? 'err' : ''}">${err ? esc(err.error) : S.evApiError ? 'Ошибка: ' + esc(S.evApiError) : `${esc(host)} · событий на 2 недели: ${S.events.filter((e) => e.feed_id === f.id).length}`}</div></div>
             <button class="icon-btn" data-act="feed-del" data-id="${f.id}" title="Отключить">${I('x')}</button>
           </div>`;
@@ -423,7 +566,11 @@ function sheet(t) {
           <button type="button" class="date-btn" id="f-date-btn" data-act="dp-open"><span>${t.due_date ? fmtDateRu(t.due_date) : 'Без даты'}</span>${I('calendar')}</button>
           <div class="dp-pop" id="dp" hidden></div>
         </div>
-        <label>Время<input type="time" id="f-time" value="${shortTime(t.due_time)}"></label>
+        <div class="dp-wrap"><label>Время</label>
+          <input type="hidden" id="f-time" value="${shortTime(t.due_time)}">
+          <button type="button" class="date-btn" id="f-time-btn" data-act="tp-open"><span>${t.due_time ? shortTime(t.due_time) : 'Без времени'}</span>${I('clock')}</button>
+          <div class="dp-pop tp-pop" id="tp" hidden></div>
+        </div>
       </div>
       <div class="quick">
         <button data-q="hour">+1 час</button>
@@ -468,7 +615,7 @@ function sheet(t) {
 }
 
 function catChips(sel) {
-  return S.cats.map((c) => `<button data-v="${c.id}" class="cat-chip ${sel === c.id ? 'on' : ''}" style="--pc:${c.color}">${I(catIcon(c))}<span>${esc(c.name)}</span><span class="chip-x" data-act="cat-del" data-id="${c.id}" role="button" aria-label="Удалить категорию">${I('x')}</span></button>`).join('')
+  return S.cats.map((c) => `<button data-v="${c.id}" class="cat-chip ${sel === c.id ? 'on' : ''}" style="${pcVars(c.color)}">${I(catIcon(c))}<span>${esc(c.name)}</span><span class="chip-x" data-act="cat-del" data-id="${c.id}" role="button" aria-label="Удалить категорию">${I('x')}</span></button>`).join('')
     + `<button data-v="" class="cat-chip none ${!sel ? 'on' : ''}">Без категории</button>`
     + (S.cats.length < CAT_MAX ? `<button class="cat-chip add" data-act="cat-new">${I('plus')}Своя</button>` : '');
 }
@@ -609,6 +756,9 @@ const AUTHORS = {
   codex: { name: 'Codex', cls: 'a-codex' },
 };
 const authorOf = (a) => AUTHORS[a] || { name: a, cls: 'a-other' };
+// запись может быть совместной: author = 'me+claude' — время в итогах делится поровну между участниками
+const authorsIn = (a) => { const x = String(a || 'me').split('+').filter(Boolean); return x.length ? x : ['me']; };
+function addBy(by, author, minutes) { const who = authorsIn(author); for (const w of who) by[w] = (by[w] || 0) + minutes / who.length; }
 const AORDER = (a) => { const i = Object.keys(AUTHORS).indexOf(a); return i < 0 ? 99 : i; };
 const sortedBy = (by) => Object.entries(by).sort((x, y) => AORDER(x[0]) - AORDER(y[0]));
 const RESULT = {
@@ -670,11 +820,11 @@ function viewReport() {
   const byAuthor = {};
   const byTask = {};
   for (const l of logs) {
-    byAuthor[l.author] = (byAuthor[l.author] || 0) + l.minutes;
+    addBy(byAuthor, l.author, l.minutes);
     const k = l.task_id || '_none';
     (byTask[k] ||= { total: 0, by: {} });
     byTask[k].total += l.minutes;
-    byTask[k].by[l.author] = (byTask[k].by[l.author] || 0) + l.minutes;
+    addBy(byTask[k].by, l.author, l.minutes);
   }
   const needsWork = logs.filter((l) => l.result === 'needs_work');
   const authorsSorted = Object.keys(byAuthor).sort((a, b) => Object.keys(AUTHORS).indexOf(a) - Object.keys(AUTHORS).indexOf(b));
@@ -693,7 +843,7 @@ function viewReport() {
       const key = ymd(d);
       const by = {};
       let tot = 0;
-      for (const l of logs) if (ymd(new Date(l.logged_at)) === key) { by[l.author] = (by[l.author] || 0) + l.minutes; tot += l.minutes; }
+      for (const l of logs) if (ymd(new Date(l.logged_at)) === key) { addBy(by, l.author, l.minutes); tot += l.minutes; }
       days.push({ key, d, by, tot });
     }
     const td = today();
@@ -800,13 +950,14 @@ function viewReport() {
 }
 
 function logCard(l, { withTask = true } = {}) {
-  const a = authorOf(l.author);
+  const who = authorsIn(l.author).map(authorOf);
+  const a = { cls: who[0].cls, name: who.map((x) => x.name).join(' + ') };
   const r = RESULT[l.result] || RESULT.progress;
   const time = new Date(l.logged_at).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
   return `
     <div class="log" data-act="edit-log" data-log="${l.id}">
       <div class="log-head">
-        <span class="who"><i class="dot ${a.cls}"></i><span>${esc(a.name)}<span class="log-time">${time}${l.minutes ? ' · ' + fmtMin(l.minutes) : ''}</span></span></span>
+        <span class="who"><span class="dots">${who.map((x) => `<i class="dot ${x.cls}"></i>`).join('')}</span><span>${esc(a.name)}<span class="log-time">${time}${l.minutes ? ' · ' + fmtMin(l.minutes) : ''}</span></span></span>
         <span class="status s-${l.result === 'done' ? 'done' : l.result === 'needs_work' ? 'overdue' : 'progress'}">${r.label}</span>
       </div>
       ${withTask && l.task_id ? `<div class="log-task">${esc(taskTitle(l.task_id))}</div>` : ''}
@@ -846,9 +997,10 @@ function openLog(log) {
           ${taskOptions.map((t) => `<option value="${t.id}" ${l.task_id === t.id ? 'selected' : ''}>${esc(t.title)}</option>`).join('')}
         </select>
       </label>
-      <div class="chips" id="lg-author">
-        ${Object.entries(AUTHORS).map(([k, a]) => `<button data-v="${k}" class="${l.author === k ? 'on' : ''}"><i class="dot ${a.cls}"></i> ${a.name}</button>`).join('')}
+      <div class="chips" id="lg-author" title="Можно выбрать несколько">
+        ${Object.entries(AUTHORS).map(([k, a]) => `<button data-v="${k}" class="${authorsIn(l.author).includes(k) ? 'on' : ''}"><i class="dot ${a.cls}"></i> ${a.name}</button>`).join('')}
       </div>
+      <p class="hint lg-hint">Работали вместе — отметь всех. Время в итогах поделится между вами поровну.</p>
       <label>Сколько времени (минут)
         <input type="number" id="lg-min" min="0" step="5" value="${l.minutes}">
       </label>
@@ -873,7 +1025,7 @@ async function saveLog() {
   const on = (id) => box.querySelector(`#${id} .on`)?.dataset.v;
   const data = {
     task_id: $('#lg-task').value || null,
-    author: on('lg-author') || 'me',
+    author: [...box.querySelectorAll('#lg-author .on')].map((b) => b.dataset.v).join('+') || 'me',
     minutes: Math.max(0, Number($('#lg-min').value) || 0),
     summary: $('#lg-sum').value.trim() || null,
     location: $('#lg-loc').value.trim() || null,
@@ -1005,7 +1157,7 @@ function workoutIcon(type = '') {
 }
 
 function workoutColor(type = '') {
-  return { yoga: '#9a7cfa', walk: '#5ccb8a', run: '#ff914d', bike: '#6c9ef5', swim: '#6c9ef5', dumbbell: '#fa7bae' }[workoutIcon(type)] || '#a69cd6';
+  return { yoga: '#9b77ee', walk: '#4ed093', run: '#f8984f', bike: '#359ee9', swim: '#25b4d0', dumbbell: '#da62b6' }[workoutIcon(type)] || '#c973de';
 }
 
 function viewHealth() {
@@ -1041,7 +1193,7 @@ function viewHealth() {
           <div class="tile"><div class="num">${day?.flights ?? '—'}</div><div class="lbl">пролётов</div></div>
         </div>
         ${H.workouts.length ? `<div class="workouts">${H.workouts.map((w) => `
-          <div class="wk ${w.ext_id ? '' : 'wk-manual'}" ${w.ext_id ? '' : `data-act="wk-edit" data-wk="${w.id}"`}><span class="plate md" style="--pc:${workoutColor(w.type)}">${I(workoutIcon(w.type))}</span><div class="wk-body"><div class="wk-t">${esc(w.type)}</div>
+          <div class="wk ${w.ext_id ? '' : 'wk-manual'}" ${w.ext_id ? '' : `data-act="wk-edit" data-wk="${w.id}"`}><span class="plate md" style="${pcVars(workoutColor(w.type))}">${I(workoutIcon(w.type))}</span><div class="wk-body"><div class="wk-t">${esc(w.type)}</div>
             <div class="wk-s">${[w.duration_min ? Math.round(w.duration_min) + ' мин' : '', w.kcal ? Math.round(w.kcal) + ' ккал' : '', w.distance_km ? Number(w.distance_km).toFixed(2).replace('.', ',') + ' км' : ''].filter(Boolean).map((x) => `<span>${x}</span>`).join('')}</div></div></div>`).join('')}</div>` : ''}
         <div class="wk-foot">
           <div class="muted small">${day ? 'С часов: обновлено в ' + hm(day.updated_at) : 'Данных с часов пока нет — настрой команду (в «Ещё»)'}</div>
@@ -1081,7 +1233,7 @@ function viewHealth() {
         <div class="card-head"><h3>${I('moon')} Сон</h3>${slTotal ? `<span class="muted small head-val">всего ${Math.floor(slTotal / 60)} ч ${slTotal % 60} мин</span>` : ''}</div>
         ${sleeps.length ? `<div class="workouts">${sleeps.map((x) => {
           const m = slMins(x); const nap = new Date(x.bed_at).getHours() >= 9 && new Date(x.bed_at).getHours() < 20;
-          return `<div class="wk wk-manual" data-act="sleep-open" data-sl="${x.id}"><span class="plate md" style="--pc:${nap ? '#A69CD6' : '#9A7CFA'}">${I(nap ? 'sun' : 'moon')}</span><div class="wk-body"><div class="wk-t">${nap ? 'Дневной сон' : 'Ночной сон'} · ${Math.floor(m / 60) ? Math.floor(m / 60) + ' ч ' : ''}${m % 60} мин</div>
+          return `<div class="wk wk-manual" data-act="sleep-open" data-sl="${x.id}"><span class="plate md" style="${pcVars(nap ? '#c973de' : '#537bea')}">${I(nap ? 'sun' : 'moon')}</span><div class="wk-body"><div class="wk-t">${nap ? 'Дневной сон' : 'Ночной сон'} · ${Math.floor(m / 60) ? Math.floor(m / 60) + ' ч ' : ''}${m % 60} мин</div>
             <div class="wk-s"><span>${hm(x.bed_at)} → ${hm(x.wake_at)}</span>${x.quality ? `<span class="stars">${'★'.repeat(x.quality)}${'☆'.repeat(5 - x.quality)}</span>` : ''}</div></div></div>`;
         }).join('')}</div>` : '<p class="muted small">Сон пока не записан.</p>'}
         <button class="pill-add pill-wide" data-act="sleep-open">${I('plus')}Добавить</button>
@@ -1235,7 +1387,7 @@ function openWorkout(w = null) {
       <h3 class="sheet-h">${w ? 'Тренировка' : 'Добавить тренировку'}</h3>
       <label>Что делала</label>
       <div class="wk-pick" id="wk-type">
-        ${WK_TYPES.map((n) => `<button data-v="${n}" class="${n === t ? 'on' : ''}"><span class="plate xs" style="--pc:${workoutColor(n)}">${I(workoutIcon(n))}</span>${n}</button>`).join('')}
+        ${WK_TYPES.map((n) => `<button data-v="${n}" class="${n === t ? 'on' : ''}"><span class="plate xs" style="${pcVars(workoutColor(n))}">${I(workoutIcon(n))}</span>${n}</button>`).join('')}
       </div>
       <input class="plain-in" id="wk-other" placeholder="Или своё: «Теннис», «Хайкинг»…" value="${known ? '' : esc(t)}">
       <label>Сколько минут</label>
@@ -1281,7 +1433,7 @@ function openCatStyle(c) {
       <div class="sheet-top"><div class="sheet-handle"></div><button class="close-x" data-act="close-log">${I('x')}</button></div>
       <div class="cat-preview">${plate(c, 'lg')}<b>${esc(c.name)}</b></div>
       <label>Цвет</label>
-      <div class="swatches">${CAT_COLORS.map((col) => `<button class="swatch ${c.color === col ? 'on' : ''}" style="--pc:${col}" data-act="cat-pick" data-color="${col}" aria-label="${col}"></button>`).join('')}</div>
+      <div class="swatches">${CAT_COLORS.map((col) => `<button class="swatch ${c.color === col ? 'on' : ''}" style="${pcVars(col)}" data-act="cat-pick" data-color="${col}" aria-label="${col}"></button>`).join('')}</div>
       <label>Иконка</label>
       <div class="icon-grid">${CAT_ICONS.map((ic) => `<button class="${(c.emoji === ic) ? 'on' : ''}" data-act="cat-pick" data-icon="${ic}">${plate({ ...c, emoji: ic }, 'md')}</button>`).join('')}</div>
     </div>`;
@@ -1344,13 +1496,13 @@ function render() {
   }
 
   const viewPlan = () => `<nav class="seg plan-seg">${[['week', 'Неделя'], ['board', 'Доска']].map(([k, l]) => `<button data-plan="${k}" class="${S.planMode === k ? 'on' : ''}">${l}</button>`).join('')}</nav>${S.planMode === 'board' ? viewBoard() : viewWeek()}`;
-  const views = { today: viewToday, plan: viewPlan, health: viewHealth, report: viewReport, settings: viewSettings };
-  const tabs = [['today', 'sun', 'Сегодня'], ['plan', 'calendar', 'Задачи'], ['health', 'heart', 'Здоровье'], ['report', 'chart', 'Итоги'], ['settings', 'user', 'Профиль']];
+  const views = { today: viewToday, plan: viewPlan, health: viewHealth, habits: viewHabits, report: viewReport, settings: viewSettings };
+  const tabs = [['today', 'sun', 'Сегодня'], ['plan', 'calendar', 'Задачи'], ['health', 'heart', 'Здоровье'], ['habits', 'flame', 'Привычки'], ['report', 'chart', 'Итоги'], ['settings', 'user', 'Профиль']];
   const keepInput = $('#quick-in')?.value || '';
   app.innerHTML = `
     <header class="top">
       <div class="brandbar">
-        <div class="brand">${{ today: 'Планер', plan: 'Задачи', report: 'Итоги', health: 'Здоровье', settings: 'Профиль' }[S.view]}</div>
+        <div class="brand">${{ today: 'Планер', plan: 'Задачи', report: 'Итоги', health: 'Здоровье', habits: 'Привычки', settings: 'Профиль' }[S.view]}</div>
         <div class="brand-date">${S.view === 'today' ? '' : new Date().toLocaleDateString('ru', { day: 'numeric', month: 'short', weekday: 'short' })}</div>
       </div>
       ${['today', 'plan'].includes(S.view) ? `
@@ -1370,7 +1522,7 @@ function render() {
       </div>
       <nav class="filters">
         <button data-cat="all" class="${S.cat === 'all' ? 'on' : ''}">Все</button>
-        ${S.cats.map((c) => `<button data-cat="${c.id}" class="${S.cat === c.id ? 'on' : ''}" style="--cat:${c.color}">${plate(c, 'xs')} ${esc(c.name)}</button>`).join('')}
+        ${S.cats.map((c) => `<button data-cat="${c.id}" class="${S.cat === c.id ? 'on' : ''}" style="--cat:${c.color};${pcVars(c.color)}">${plate(c, 'xs')} ${esc(c.name)}</button>`).join('')}
       </nav>` : ''}
     </header>
     <main class="view view-${S.view}">${views[S.view]()}</main>
@@ -1383,10 +1535,12 @@ function render() {
 // ---------- события (делегирование) ----------
 document.addEventListener('click', (e) => {
   const pop = document.getElementById('dp');
-  if (pop && !pop.hidden && !e.target.closest('.dp-pop') && !e.target.closest('[data-act=dp-open]')) pop.hidden = true;
+  if (pop && !pop.hidden && !e.target.closest('#dp') && !e.target.closest('[data-act=dp-open]')) pop.hidden = true;
+  const tp = document.getElementById('tp');
+  if (tp && !tp.hidden && !e.target.closest('#tp') && !e.target.closest('[data-act=tp-open]')) tp.hidden = true;
 }, true);
 document.addEventListener('click', async (e) => {
-  const el = e.target.closest('[data-act],[data-view],[data-cat],[data-q],[data-range],[data-min],[data-plan],[data-hday],[data-water],[data-q5],#f-status button,#f-cat button,#f-days button,#wk-type button,[data-wmin],#lg-author button,#lg-res button');
+  const el = e.target.closest('[data-act],[data-view],[data-cat],[data-q],[data-range],[data-min],[data-plan],[data-hday],[data-water],[data-q5],#f-status button,#f-cat button,#f-days button,#wk-type button,[data-wmin],#lg-author button,#lg-res button,#hb-icons button,#hb-colors button,[data-hdays]');
   if (!el) return;
 
   if (el.dataset.view) { S.view = el.dataset.view; save('view', S.view); render(); window.scrollTo(0, 0); if (S.view === 'report') safe(loadReport); if (S.view === 'health') safe(loadHealth); return; }
@@ -1406,7 +1560,14 @@ document.addEventListener('click', async (e) => {
   if (el.dataset.q5) { el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', Number(b.dataset.q5) <= Number(el.dataset.q5))); return; }
   if (el.dataset.range) { S.report.range = el.dataset.range; save('range', S.report.range); S.report.logs = []; S.report.done = []; render(); safe(loadReport); return; }
   if (el.dataset.min) { $('#lg-min').value = el.dataset.min; return; }
-  if (el.closest('#lg-author') || el.closest('#lg-res')) {
+  if (el.closest('#hb-icons') || el.closest('#hb-colors')) { el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el)); if (el.closest('#hb-colors')) $('#hb-icons').setAttribute('style', pcVars(el.dataset.v)); return; }
+  if (el.dataset.hdays) { $('#hb-days').value = el.dataset.hdays; el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el)); return; }
+  if (el.closest('#lg-author')) { // можно несколько: работали вместе
+    const others = [...el.parentElement.querySelectorAll('.on')].filter((b) => b !== el);
+    if (!el.classList.contains('on') || others.length) el.classList.toggle('on');
+    return;
+  }
+  if (el.closest('#lg-res')) {
     el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
     return;
   }
@@ -1427,12 +1588,13 @@ document.addEventListener('click', async (e) => {
     if (el.dataset.q === 'evening') { d.value = today(); tm.value = '19:00'; }
     if (el.dataset.q === 'tomorrow') { d.value = addDays(d.value && d.value >= today() ? d.value : today(), 1); }
     if (el.dataset.q === 'nodate') { d.value = ''; tm.value = ''; }
-    syncDateBtn();
+    syncDateBtn(); syncTimeBtn();
     return;
   }
 
   const act = el.dataset.act;
   if (act && act.startsWith('dp-')) { datePickerAct(act, el); return; }
+  if (act && act.startsWith('tp-')) { timePickerAct(act, el); return; }
   const id = el.closest('[data-id]')?.dataset.id;
   const task = S.tasks.find((t) => t.id === id);
 
@@ -1659,6 +1821,24 @@ document.addEventListener('click', async (e) => {
       await safe(reload);
       toast(S.settings?.telegram_chat_id ? 'Telegram подключён ✓' : 'Пока не вижу — нажми Start в боте', !S.settings?.telegram_chat_id);
       break;
+    case 'hb-today': toggleHabit(el.dataset.id, today()); break;
+    case 'hb-cell': toggleHabit(el.dataset.id, el.dataset.d); break;
+    case 'hb-new': openHabit(); break;
+    case 'hb-edit': openHabit(S.habits.find((h) => h.id === el.dataset.id)); break;
+    case 'hb-save': await saveHabit(); break;
+    case 'hb-del': {
+      if (!sure(el, 'Точно удалить?')) break;
+      const id = S.hbEditing?.id;
+      await safe(() => db.deleteHabit(id), 'Удалено');
+      S.habits = S.habits.filter((h) => h.id !== id); closeLog(); render();
+      break;
+    }
+    case 'hb-restart': {
+      const h = S.habits.find((x) => x.id === el.dataset.id);
+      const upd = await safe(() => db.updateHabit(h.id, { start_date: today(), archived: false }), 'Начали заново — день 1');
+      if (upd) { Object.assign(h, upd); render(); }
+      break;
+    }
     case 'feed-add': {
       const name = $('#feed-name')?.value.trim();
       const url = $('#feed-url')?.value.trim();
@@ -1968,14 +2148,45 @@ function datePickerAct(act, el) {
   const pop = $('#dp'), inp = $('#f-date');
   if (act === 'dp-open') {
     if (!pop.hidden) { pop.hidden = true; return; }
+    $('#tp') && ($('#tp').hidden = true);
     const base = inp.value || today(); const [y, m] = base.split('-').map(Number);
     S.dp = { y, m: m - 1 }; renderDP(); pop.hidden = false; return;
   }
   if (act === 'dp-prev' || act === 'dp-next') { const d = new Date(S.dp.y, S.dp.m + (act === 'dp-next' ? 1 : -1), 1); S.dp = { y: d.getFullYear(), m: d.getMonth() }; renderDP(); return; }
   if (act === 'dp-day') inp.value = el.dataset.d;
   if (act === 'dp-today') inp.value = today();
-  if (act === 'dp-clear') { inp.value = ''; const tm = $('#f-time'); if (tm) tm.value = ''; }
+  if (act === 'dp-clear') { inp.value = ''; const tm = $('#f-time'); if (tm) tm.value = ''; syncTimeBtn(); }
   syncDateBtn(); pop.hidden = true;
+}
+
+// выбор времени в стиле календаря: сетка часов + сетка минут (шаг 5)
+function syncTimeBtn() { const v = $('#f-time')?.value; const b = $('#f-time-btn span'); if (b) b.textContent = v || 'Без времени'; }
+function renderTP() {
+  const pop = $('#tp'); if (!pop) return;
+  const [h, m] = ($('#f-time').value || '').split(':');
+  const hSel = S.tp?.h ?? h, mSel = m;
+  const hh = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+  const mm = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
+  pop.innerHTML = `
+    <div class="tp-lbl">Часы</div>
+    <div class="tp-grid">${hh.map((x) => `<button type="button" data-act="tp-h" data-v="${x}" class="${x === hSel ? 'sel' : ''}">${x}</button>`).join('')}</div>
+    <div class="tp-lbl">Минуты</div>
+    <div class="tp-grid">${mm.map((x) => `<button type="button" data-act="tp-m" data-v="${x}" class="${x === mSel && hSel === h ? 'sel' : ''}">:${x}</button>`).join('')}</div>
+    <div class="dp-foot"><button type="button" class="link-btn dp-link" data-act="tp-clear">Без времени</button><button type="button" class="link-btn dp-link" data-act="tp-now">Сейчас</button></div>`;
+}
+function timePickerAct(act, el) {
+  const pop = $('#tp'), inp = $('#f-time');
+  if (act === 'tp-open') {
+    if (!pop.hidden) { pop.hidden = true; return; }
+    $('#dp') && ($('#dp').hidden = true);
+    S.tp = { h: (inp.value || '').split(':')[0] || null }; renderTP(); pop.hidden = false; return;
+  }
+  if (act === 'tp-h') { S.tp.h = el.dataset.v; if (!inp.value) inp.value = `${el.dataset.v}:00`; else inp.value = `${el.dataset.v}:${inp.value.split(':')[1]}`; syncTimeBtn(); renderTP(); return; }
+  if (act === 'tp-m') { inp.value = `${S.tp.h || '09'}:${el.dataset.v}`; }
+  if (act === 'tp-now') { const n = new Date(); inp.value = `${String(n.getHours()).padStart(2, '0')}:${String(Math.ceil(n.getMinutes() / 5) * 5 % 60).padStart(2, '0')}`; }
+  if (act === 'tp-clear') inp.value = '';
+  if (inp.value && !$('#f-date').value) { $('#f-date').value = today(); syncDateBtn(); }
+  syncTimeBtn(); pop.hidden = true;
 }
 
 // подтверждение вторым нажатием (вместо системного окна): первый тап — «Точно…?», второй — действие
