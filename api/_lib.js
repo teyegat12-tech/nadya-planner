@@ -104,7 +104,7 @@ export async function claudeFood({ imageB64 = null, mediaType = 'image/jpeg', te
     method: 'POST',
     headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
     body: JSON.stringify({
-      model: process.env.CLAUDE_MODEL || 'claude-sonnet-4-5',
+      model: process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
       max_tokens: 900,
       system: FOOD_SYSTEM,
       messages: [{ role: 'user', content }],
