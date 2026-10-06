@@ -93,9 +93,10 @@ async function loadEvents(force = false) {
     const r = await db.events(td, addDays(td, 13));
     S.events = r.events || [];
     S.evErrors = r.errors || [];
+    S.evApiError = null;
     save('events', S.events);
     render();
-  } catch (e) { console.warn(e); }
+  } catch (e) { console.warn(e); S.evApiError = e.message || 'не получилось загрузить'; render(); }
 }
 const feedById = (id) => S.feeds.find((f) => f.id === id);
 function eventsOn(day) {
@@ -341,7 +342,7 @@ function viewSettings() {
           return `
           <div class="feed-row" data-id="${f.id}">
             <span class="ev-dot big" style="background:${f.color || '#a69cd6'}"></span>
-            <div class="feed-txt"><div class="feed-name">${esc(f.name)}</div><div class="feed-host ${err ? 'err' : ''}">${err ? esc(err.error) : esc(host)}</div></div>
+            <div class="feed-txt"><div class="feed-name">${esc(f.name)}</div><div class="feed-host ${err || S.evApiError ? 'err' : ''}">${err ? esc(err.error) : S.evApiError ? 'Ошибка: ' + esc(S.evApiError) : `${esc(host)} · событий на 2 недели: ${S.events.filter((e) => e.feed_id === f.id).length}`}</div></div>
             <button class="icon-btn" data-act="feed-del" data-id="${f.id}" title="Отключить">${I('x')}</button>
           </div>`;
         }).join('')}</div>` : ''}
