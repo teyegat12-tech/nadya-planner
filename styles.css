@@ -2022,3 +2022,23 @@ body { background: linear-gradient(170deg, #F5F3F9 0%, #E3E1EA 55%, #C9C3D8 100%
 .hb-ring { box-shadow: none; }
 /* привычки: подпись «День N из M…» под иконкой во всю ширину, над полосой */
 .habit .hb-sub { margin: -4px 0 -6px; }
+
+.habits-seg { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: 14px; }
+.habits-seg button { min-width: 0; overflow-wrap: anywhere; }
+.hb-ring, .hb-dot.on .hb-ring {
+  background: rgba(232, 231, 238, .65);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.8), 0 12px 24px -17px rgba(60,55,95,.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.hb-progress-track { stroke: rgba(150,146,166,.22); }
+.red-stats { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+.red-stats > div { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+.red-stats b { font: var(--num); color: var(--ink); }
+.red-stats span { font: var(--p3); color: var(--title); overflow-wrap: anywhere; }
+.red-history { display: flex; gap: 10px; overflow-x: auto; padding: 4px 0; }
+.red-day { flex: 0 0 42px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0; font: var(--p3); color: var(--title); }
+.red-day-value { font: var(--num); }
+.red-day-track { height: 64px; width: 18px; border-radius: 999px; background: rgba(255,255,255,.5); display: flex; align-items: flex-end; overflow: hidden; }
+.red-day-track i { width: 100%; border-radius: inherit; background: var(--pc); }
+.sheet .plain-in { width: 100%; min-width: 0; box-sizing: border-box; }
