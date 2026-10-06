@@ -174,7 +174,7 @@ const plural = (n, a, b, c) => { const m = n % 10, mm = n % 100; return m === 1 
 // быстрые кружки на «Сегодня»
 function habitStrip() {
   const act = S.habits.filter((h) => habitStats(h).active);
-  if (!act.length) return '';
+  if (!act.length && !(S.reductions || []).length) return '';
   return `
     <section class="hb-strip">
       <div class="hb-strip-head"><h3>${I('flame', 'sm')} Привычки</h3><button class="link-btn" data-view="habits">Все</button></div>
@@ -183,7 +183,11 @@ function habitStrip() {
           <span class="hb-ring"><svg class="hb-progress" viewBox="0 0 64 64" aria-hidden="true"><circle class="hb-progress-track" cx="32" cy="32" r="27"/><circle class="hb-progress-fill" cx="32" cy="32" r="27" pathLength="100" stroke-dasharray="${100 * st.done / h.days} 100" style="${st.done ? '' : 'visibility:hidden'}"/></svg>${st.todayOn ? I('check') : I(catIcon({ emoji: h.icon }))}</span>
           <span class="hb-name">${esc(h.title)}</span>
           <span class="hb-count">${st.done} / ${h.days}</span>
-        </button>`; }).join('')}</div>
+        </button>`; }).join('')}${(S.reductions || []).map((r) => {
+          const entry = (S.reductionEntries || []).find((e) => e.reduction_id === r.id && e.date === today());
+          const pct = entry ? Math.max(0, Math.min(100, (1 - Number(entry.amount) / r.baseline) * 100)) : 0;
+          return `<button class="hb-dot" data-act="red-open" data-id="${r.id}" style="${pcVars(CAT_COLORS[1])}" title="${esc(r.title)}"><span class="hb-ring"><svg class="hb-progress" viewBox="0 0 64 64" aria-hidden="true"><circle class="hb-progress-track" cx="32" cy="32" r="27"/><circle class="hb-progress-fill" cx="32" cy="32" r="27" pathLength="100" stroke-dasharray="${pct} 100" style="${pct ? '' : 'visibility:hidden'}"/></svg>${I('leaf')}</span><span class="hb-name">${esc(r.title)}</span><span class="hb-count">${entry ? `${entry.amount} / ${r.baseline}` : 'Нет записи'}</span></button>`;
+        }).join('')}</div>
     </section>`;
 }
 
@@ -220,7 +224,7 @@ function habitCard(h) {
 }
 
 function viewHabits() {
-  const tabs = `<nav class="seg"><button data-act="habit-mode" data-mode="formation" class="${S.habitMode !== 'reduction' ? 'on' : ''}">Формирование</button><button data-act="habit-mode" data-mode="reduction" class="${S.habitMode === 'reduction' ? 'on' : ''}">Сокращение</button></nav>`;
+  const tabs = `<nav class="seg habits-seg"><button data-act="habit-mode" data-mode="formation" class="${S.habitMode !== 'reduction' ? 'on' : ''}">Формирование</button><button data-act="habit-mode" data-mode="reduction" class="${S.habitMode === 'reduction' ? 'on' : ''}">Сокращение</button></nav>`;
   if (S.habitMode === 'reduction') return tabs + viewReductions();
   const list = S.habits.map((h) => [h, habitStats(h)]);
   const going = list.filter(([, st]) => !st.finished).map(([h]) => h);
@@ -244,13 +248,24 @@ function viewReductions() {
     const week = entries.filter((e) => e.date >= addDays(today(), -6) && e.date <= today());
     const average = week.length ? week.reduce((sum, e) => sum + Number(e.amount), 0) / week.length : null;
     const change = average === null ? null : Math.round((1 - average / r.baseline) * 100);
-    return `<section class="card"><h3>${esc(r.title)}</h3><p>Исходный уровень: ${r.baseline} ${esc(r.unit)} в день</p><p>Среднее за неделю: ${average === null ? 'Нет записей' : average.toFixed(1)}${change === null ? '' : ` · ${change >= 0 ? 'Снижение' : 'Рост'} количества: ${Math.abs(change)}%`}</p><p>Дней с нулём: ${entries.filter((e) => Number(e.amount) === 0).length}</p><label>Дата<input type="date" id="red-date-${r.id}" value="${today()}" max="${today()}"></label><label>Количество (${esc(r.unit)})<input type="number" id="red-amount-${r.id}" min="0" step="1"></label><button class="btn" data-act="red-entry" data-id="${r.id}">${I('check')} Сохранить день</button><div>${entries.slice(-14).map((e) => `<div style="display:flex;align-items:center;gap:8px;margin-top:8px"><span>${esc(e.date)}: ${e.amount}</span><progress aria-label="Количество за ${esc(e.date)}" max="${Math.max(r.baseline, Number(e.amount), 1)}" value="${e.amount}"></progress><button class="link-btn" data-act="red-edit-entry" data-id="${r.id}" data-date="${e.date}" data-amount="${e.amount}">${I('pencil')} Изменить</button></div>`).join('')}</div></section>`;
+    const latest = entries.find((e) => e.date === today());
+    const peak = Math.max(r.baseline, ...entries.map((e) => Number(e.amount)));
+    return `<section class="card habit reduction" style="${pcVars(CAT_COLORS[1])}"><div class="hb-head">${hbPlate({ icon: 'leaf', color: CAT_COLORS[1] })}<div class="hb-t"><div class="hb-title">${esc(r.title)}</div></div><button class="hb-today" data-act="red-open" data-id="${r.id}" aria-label="Записать количество за день">${I('plus')}</button></div><div class="hb-sub">Исходный уровень: ${r.baseline} ${esc(r.unit)} в день</div><div class="red-stats"><div><b>${latest ? latest.amount : '—'}</b><span>Сегодня</span></div><div><b>${average === null ? '—' : average.toFixed(1)}</b><span>Среднее · ${week.length} из 7 дней</span></div><div><b>${entries.filter((e) => Number(e.amount) === 0).length}</b><span>Дней с нулём</span></div></div><div class="hb-sub">${change === null ? 'Нет записей за последние 7 дней' : `${change >= 0 ? 'Снижение' : 'Рост'} количества: ${Math.abs(change)}% · по заполненным дням`}</div><div class="red-history">${entries.slice(-14).map((e) => `<button class="red-day" data-act="red-edit-entry" data-id="${r.id}" data-date="${e.date}" data-amount="${e.amount}" title="${esc(e.date)}: ${e.amount} ${esc(r.unit)}"><span class="red-day-value">${e.amount}</span><span class="red-day-track"><i style="height:${100 * Number(e.amount) / peak}%"></i></span><span>${esc(e.date.slice(8))}.${esc(e.date.slice(5, 7))}</span></button>`).join('') || '<div class="hb-sub">Нет записей</div>'}</div><div class="hb-foot"><button class="link-btn" data-act="red-open" data-id="${r.id}">Записать день</button></div></section>`;
   }).join('')}<button class="btn" data-act="red-new">${I('plus')} Новый трекер сокращения</button></div>`;
 }
 
 function openReduction() {
   const box = $('#logsheet');
-  box.innerHTML = `<div class="sheet-bg" data-act="close-log"></div><div class="sheet"><h3>Новый трекер сокращения</h3><label>Название<input id="red-title" placeholder="Курение"></label><label>Обычно за день<input id="red-baseline" type="number" min="1" step="1"></label><label>Единица измерения<input id="red-unit" value="сигарет"></label><button class="btn" data-act="close-log">Отмена</button><button class="btn primary" data-act="red-save">Создать</button></div>`;
+  box.innerHTML = `<div class="sheet-bg" data-act="close-log"></div><div class="sheet"><div class="sheet-top"><div class="sheet-handle"></div><button class="close-x" data-act="close-log" aria-label="Закрыть">${I('x')}</button></div><h3 class="sheet-h">Новый трекер сокращения</h3><label>Название<input class="plain-in" type="text" id="red-title" placeholder="Курение"></label><label>Обычно за день<input id="red-baseline" type="number" min="1" step="1"></label><label>Единица измерения<input class="plain-in" type="text" id="red-unit" value="сигарет"></label><div class="sheet-actions"><button class="btn" data-act="close-log">Отмена</button><button class="btn primary" data-act="red-save">Создать</button></div></div>`;
+  box.classList.add('open');
+}
+
+function openReductionEntry(id, date = today(), amount = null) {
+  const tracker = (S.reductions || []).find((r) => r.id === id);
+  if (!tracker) return;
+  const existing = (S.reductionEntries || []).find((e) => e.reduction_id === id && e.date === date);
+  const box = $('#logsheet');
+  box.innerHTML = `<div class="sheet-bg" data-act="close-log"></div><div class="sheet"><div class="sheet-top"><div class="sheet-handle"></div><button class="close-x" data-act="close-log" aria-label="Закрыть">${I('x')}</button></div><h3 class="sheet-h">${esc(tracker.title)}</h3><label>Дата<input type="date" id="red-date-${id}" value="${esc(date)}" max="${today()}"></label><label>Количество (${esc(tracker.unit)})<input type="number" id="red-amount-${id}" min="0" step="1" value="${amount ?? existing?.amount ?? ''}"></label><div class="sheet-actions"><button class="btn" data-act="close-log">Отмена</button><button class="btn primary" data-act="red-entry" data-id="${id}">Сохранить</button></div></div>`;
   box.classList.add('open');
 }
 
@@ -1892,10 +1907,9 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'red-edit-entry':
-      $(`#red-date-${el.dataset.id}`).value = el.dataset.date;
-      $(`#red-amount-${el.dataset.id}`).value = el.dataset.amount;
-      $(`#red-amount-${el.dataset.id}`).focus();
+      openReductionEntry(el.dataset.id, el.dataset.date, Number(el.dataset.amount));
       break;
+    case 'red-open': openReductionEntry(el.dataset.id); break;
     case 'red-entry': {
       const input = $(`#red-amount-${el.dataset.id}`);
       const date = $(`#red-date-${el.dataset.id}`).value, amount = Number(input.value);
@@ -1903,7 +1917,7 @@ document.addEventListener('click', async (e) => {
       el.disabled = true;
       const result = await safe(() => db.saveReductionEntry({ reduction_id: el.dataset.id, date, amount }), 'День сохранён');
       el.disabled = false;
-      if (result) await safe(reload);
+      if (result) { closeLog(); await safe(reload); }
       break;
     }
     case 'hb-edit': openHabit(S.habits.find((h) => h.id === el.dataset.id)); break;
