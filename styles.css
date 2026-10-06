@@ -2059,3 +2059,12 @@ body { background: linear-gradient(170deg, #F5F3F9 0%, #E3E1EA 55%, #C9C3D8 100%
   background: linear-gradient(135deg, #F59768 0%, #FE9853 50%, #F590B2 100%);
   box-shadow: 0 0 0 2px var(--card, #fff); pointer-events: none; animation: tabdot .5s cubic-bezier(.3,1.6,.5,1); }
 @keyframes tabdot { from { transform: scale(0); } to { transform: scale(1); } }
+
+/* ---------- шаг 27: кружок привычки в «Сегодня» открывает её карточку ---------- */
+.habit.hb-flash { animation: hbflash 1.4s ease; }
+@keyframes hbflash { 0%, 100% { box-shadow: var(--shadow); } 25% { box-shadow: 0 0 0 3px var(--pc), var(--shadow); } }
+
+/* ---------- шаг 28: тоньше кольцо прогресса привычек и полоса в карточке ---------- */
+.hb-progress circle { stroke-width: 4 !important; }
+.hb-progress-fill { stroke: var(--hbg, var(--pc)) !important; }
+.hb-bar { height: 4px !important; }

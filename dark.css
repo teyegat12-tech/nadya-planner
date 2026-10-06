@@ -617,6 +617,7 @@ html[data-theme="dark"] .archive-notes { color: var(--muted); }
 html[data-theme="dark"] .archive-date { color: var(--muted); }
 html[data-theme="dark"] .login input[aria-invalid=true] { outline-color: #ef9b6a; }
 html[data-theme="dark"] .tab-dot { background: linear-gradient(135deg, #F59768 0%, #FE9853 50%, #F590B2 100%); box-shadow: 0 0 0 2px var(--card, #fff); }
+html[data-theme="dark"] .hb-progress-fill { stroke: var(--hbg, var(--pc)) !important; }
 html[data-theme="dark"] body { background: linear-gradient(170deg, #1d1828 0%, #141120 55%, #0f0c18 100%) fixed !important; }
 html[data-theme="dark"] .add-hero { background:
   radial-gradient(80% 90% at 100% 100%, rgba(150, 112, 240, .55) 0%, rgba(150, 112, 240, 0) 65%),

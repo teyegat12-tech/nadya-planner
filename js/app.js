@@ -174,6 +174,14 @@ function habitStats(h) {
 const plural = (n, a, b, c) => { const m = n % 10, mm = n % 100; return m === 1 && mm !== 11 ? a : m >= 2 && m <= 4 && (mm < 12 || mm > 14) ? b : c; };
 
 // быстрые кружки на «Сегодня»
+// градиент по дуге прогресса: от светлого начала к насыщенному концу
+function hbGrad(id, frac) {
+  const f = Math.max(0.04, Math.min(1, frac || 0));
+  const ang = 2 * Math.PI * Math.min(f, 0.5);
+  const x2 = (32 + 29 * Math.cos(ang)).toFixed(1), y2 = (32 + 29 * Math.sin(ang)).toFixed(1);
+  return `<defs><linearGradient id="hbg-${id}" x1="61" y1="32" x2="${x2}" y2="${y2}" gradientUnits="userSpaceOnUse"><stop offset="0" style="stop-color:var(--pc2, var(--pc))"/><stop offset="1" style="stop-color:var(--pc)"/></linearGradient></defs>`;
+}
+
 function habitStrip() {
   const act = S.habits.filter((h) => habitStats(h).active);
   if (!act.length && !(S.reductions || []).length) return '';
@@ -181,8 +189,8 @@ function habitStrip() {
     <section class="hb-strip">
       <div class="hb-strip-head"><h3>${I('flame', 'sm')} Привычки</h3><button class="link-btn" data-view="habits">Все</button></div>
       <div class="hb-row">${act.map((h) => { const st = habitStats(h); return `
-        <button class="hb-dot ${st.todayOn ? 'on' : ''}" data-act="hb-today" data-id="${h.id}" style="${pcVars(h.color)}" title="${esc(h.title)}">
-          <span class="hb-ring"><svg class="hb-progress" viewBox="0 0 64 64" aria-hidden="true"><circle class="hb-progress-track" cx="32" cy="32" r="27"/><circle class="hb-progress-fill" cx="32" cy="32" r="27" pathLength="100" stroke-dasharray="${100 * st.done / h.days} 100" style="${st.done ? '' : 'visibility:hidden'}"/></svg>${st.todayOn ? I('check') : I(catIcon({ emoji: h.icon }))}</span>
+        <button class="hb-dot ${st.todayOn ? 'on' : ''}" data-act="hb-go" data-id="${h.id}" style="${pcVars(h.color)}" title="${esc(h.title)}">
+          <span class="hb-ring"><svg class="hb-progress" viewBox="0 0 64 64" aria-hidden="true" style="--hbg:url(#hbg-${h.id})">${hbGrad(h.id, st.done / h.days)}<circle class="hb-progress-track" cx="32" cy="32" r="29"/><circle class="hb-progress-fill" cx="32" cy="32" r="29" pathLength="100" stroke-dasharray="${100 * st.done / h.days} 100" style="${st.done ? '' : 'visibility:hidden'}"/></svg>${st.todayOn ? I('check') : I(catIcon({ emoji: h.icon }))}</span>
           <span class="hb-name">${esc(h.title)}</span>
           <span class="hb-count">${st.done} / ${h.days}</span>
         </button>`; }).join('')}${(S.reductions || []).map((r) => {
@@ -192,7 +200,7 @@ function habitStrip() {
           const end = addDays(start, duration - 1);
           const recorded = (S.reductionEntries || []).filter((e) => e.reduction_id === r.id && e.date >= start && e.date <= end && e.date <= today()).length;
           const pct = Math.min(100, recorded / duration * 100);
-          return `<button class="hb-dot" data-act="red-open" data-id="${r.id}" style="${pcVars(CAT_COLORS[1])}" title="${esc(r.title)}"><span class="hb-ring"><svg class="hb-progress" viewBox="0 0 64 64" aria-hidden="true"><circle class="hb-progress-track" cx="32" cy="32" r="27"/><circle class="hb-progress-fill" cx="32" cy="32" r="27" pathLength="100" stroke-dasharray="${pct} 100" style="${pct ? '' : 'visibility:hidden'}"/></svg>${I('leaf')}</span><span class="hb-name">${esc(r.title)}</span><span class="hb-count">${recorded} / ${duration}</span></button>`;
+          return `<button class="hb-dot" data-act="red-open" data-id="${r.id}" style="${pcVars(CAT_COLORS[1])}" title="${esc(r.title)}"><span class="hb-ring"><svg class="hb-progress" viewBox="0 0 64 64" aria-hidden="true" style="--hbg:url(#hbg-${r.id})">${hbGrad(r.id, pct / 100)}<circle class="hb-progress-track" cx="32" cy="32" r="29"/><circle class="hb-progress-fill" cx="32" cy="32" r="29" pathLength="100" stroke-dasharray="${pct} 100" style="${pct ? '' : 'visibility:hidden'}"/></svg>${I('leaf')}</span><span class="hb-name">${esc(r.title)}</span><span class="hb-count">${recorded} / ${duration}</span></button>`;
         }).join('')}</div>
     </section>`;
 }
@@ -211,7 +219,7 @@ function habitCard(h) {
     : h.start_date > td ? `Старт ${humanDate(h.start_date, td)}`
     : `День ${st.dayN} из ${h.days} · отмечено ${st.done}`;
   return `
-    <section class="card habit ${st.finished ? 'finished' : ''}" style="${pcVars(h.color)}">
+    <section class="card habit ${st.finished ? 'finished' : ''}" data-hid="${h.id}" style="${pcVars(h.color)}">
       <div class="hb-head">
         ${hbPlate(h)}
         <div class="hb-t">
@@ -1959,6 +1967,12 @@ document.addEventListener('click', async (e) => {
       toast(S.settings?.telegram_chat_id ? 'Telegram подключён ✓' : 'Пока не вижу — нажми Start в боте', !S.settings?.telegram_chat_id);
       break;
     case 'hb-today': toggleHabit(el.dataset.id, today()); break;
+    case 'hb-go': { // кружок в «Сегодня»: открыть привычку, а не отмечать
+      S.habitMode = 'formation'; S.view = 'habits'; save('view', S.view); render(); window.scrollTo(0, 0);
+      const card = document.querySelector(`.habit[data-hid="${el.dataset.id}"]`);
+      if (card) { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); card.classList.add('hb-flash'); setTimeout(() => card.classList.remove('hb-flash'), 1400); }
+      break;
+    }
     case 'hb-cell': toggleHabit(el.dataset.id, el.dataset.d); break;
     case 'hb-new': openHabit(); break;
     case 'habit-mode': S.habitMode = el.dataset.mode; render(); break;
