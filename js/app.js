@@ -88,6 +88,8 @@ async function reload() {
   }
   S.tasks = tasks; S.cats = cats.map((c) => ({ ...c, color: fixColor(c.color) })); S.settings = settings;
   save('cache', { tasks, cats, settings });
+  // первый запуск кружка: всё, что уже висело раньше, считаем просмотренным
+  try { if (!localStorage.getItem('seenDue')) { SEEN = new Set(dueNowTasks().map(seenKey)); saveSeen(); } } catch {}
   render();
   if (S.view === 'report') loadReport();
   if (S.view === 'health') loadHealth();
@@ -331,6 +333,53 @@ async function toggleHabit(id, d) {
 let reloadTimer;
 const reloadSoon = () => { clearTimeout(reloadTimer); reloadTimer = setTimeout(() => safe(reload), 300); };
 
+// ---------- тема: светлая / тёмная / как на телефоне ----------
+function getTheme() { try { return localStorage.getItem('theme') || 'light'; } catch { return 'light'; } }
+function applyTheme() {
+  const t = getTheme();
+  const dark = t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#16121f' : '#E4E3E9');
+}
+function setTheme(t) { try { localStorage.setItem('theme', t); } catch {} applyTheme(); }
+applyTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
+
+// ---------- кружок в меню: время задачи пришло, а ты её ещё не открывала ----------
+// «видела» хранится на этом устройстве; перенесла задачу на другое время — кружок загорится снова
+const seenKey = (t) => `${t.id}|${t.due_date}|${t.due_time || ''}`;
+let SEEN = null;
+function seenSet() {
+  if (SEEN) return SEEN;
+  try { SEEN = new Set(JSON.parse(localStorage.getItem('seenDue') || 'null')); } catch { SEEN = new Set(); }
+  return SEEN;
+}
+function saveSeen() { try { localStorage.setItem('seenDue', JSON.stringify([...SEEN].slice(-500))); } catch {} }
+function markSeen(t) {
+  if (!t?.id) return; seenSet().add(seenKey(t)); saveSeen();
+  const n = dueNowCount(); setAppBadge(n);
+  if (!n) document.querySelectorAll('.tab-dot').forEach((d) => d.remove());
+}
+function dueNowTasks() {
+  const td = today(), hm = nowHM();
+  return S.tasks.filter((t) => isActive(t) && !t.archived && t.due_date
+    && (t.due_date < td || (t.due_date === td && t.due_time && shortTime(t.due_time) <= hm)));
+}
+function dueNowCount() {
+  const list = dueNowTasks();
+  const seen = seenSet();
+  return list.filter((t) => !seen.has(seenKey(t))).length;
+}
+// цифра на иконке приложения на телефоне (где система это умеет)
+let lastBadge = -1;
+function setAppBadge(n) {
+  if (n === lastBadge) return; lastBadge = n;
+  try {
+    if (n > 0) navigator.setAppBadge?.(n)?.catch?.(() => {});
+    else navigator.clearAppBadge?.()?.catch?.(() => {});
+  } catch {}
+}
+
 // ---------- фильтры ----------
 function visible(tasks) {
   return S.cat === 'all' ? tasks : tasks.filter((t) => t.category_id === S.cat);
@@ -505,6 +554,11 @@ function viewSettings() {
         <label class="row">Утренний план
           <input type="time" id="digest" class="goal-in" value="${shortTime(s.digest_time) || '08:30'}">
         </label>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h3>${I('moon')} Тема</h3></div>
+        <nav class="seg theme-seg">${[['light', 'Светлая'], ['dark', 'Тёмная'], ['auto', 'Как на телефоне']].map(([k, l]) => `<button data-act="theme" data-v="${k}" class="${getTheme() === k ? 'on' : ''}">${l}</button>`).join('')}</nav>
       </section>
 
       <section class="card">
@@ -736,6 +790,7 @@ async function addCat(name, icon) {
 }
 
 function openSheet(t) {
+  markSeen(t);
   S.editing = { ...t };
   const box = $('#sheet');
   box.innerHTML = sheet(S.editing);
@@ -1567,6 +1622,9 @@ function render() {
   const views = { today: viewToday, plan: viewPlan, health: viewHealth, habits: viewHabits, report: viewReport, settings: viewSettings };
   const tabs = [['today', 'sun', 'Сегодня'], ['plan', 'calendar', 'Задачи'], ['health', 'heart', 'Здоровье'], ['habits', 'flame', 'Привычки'], ['report', 'chart', 'Итоги'], ['settings', 'user', 'Профиль']];
   const keepInput = $('#quick-in')?.value || '';
+  const due = dueNowCount();
+  setAppBadge(due);
+  const dot = { today: due > 0 };
   app.innerHTML = `
     <header class="top">
       <div class="brandbar">
@@ -1595,7 +1653,7 @@ function render() {
     </header>
     <main class="view view-${S.view}">${views[S.view]()}</main>
     <nav class="tabs">
-      ${tabs.map(([k, i, l]) => `<button data-view="${k}" class="${S.view === k ? 'on' : ''}" title="${l}" aria-label="${l}">${I(i)}<span>${l}</span></button>`).join('')}
+      ${tabs.map(([k, i, l]) => `<button data-view="${k}" class="${S.view === k ? 'on' : ''}" title="${l}" aria-label="${l}${dot[k] ? ' — есть что сделать' : ''}">${I(i)}<span>${l}</span>${dot[k] ? '<i class="tab-dot"></i>' : ''}</button>`).join('')}
     </nav>`;
   if (keepInput && $('#quick-in')) $('#quick-in').value = keepInput;
 }
@@ -1687,6 +1745,9 @@ document.addEventListener('click', async (e) => {
       }, 420);
       break;
     }
+    case 'theme':
+      setTheme(el.dataset.v); render();
+      break;
     case 'sound':
       setSound(!isSoundOn()); render(); if (isSoundOn()) playDone();
       break;

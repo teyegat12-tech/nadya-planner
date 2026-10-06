@@ -1,6 +1,6 @@
 // Офлайн-оболочка: приложение открывается даже без интернета
-const CACHE = 'planner-v1';
-const SHELL = ['/', '/index.html', '/styles.css', '/js/app.js', '/js/db.js', '/js/dates.js', '/js/config.js', '/js/fx.js', '/manifest.webmanifest', '/icons/icon-192.png'];
+const CACHE = 'planner-v2';
+const SHELL = ['/', '/index.html', '/styles.css', '/dark.css', '/js/app.js', '/js/db.js', '/js/dates.js', '/js/config.js', '/js/fx.js', '/manifest.webmanifest', '/icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

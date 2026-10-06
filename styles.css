@@ -2052,3 +2052,10 @@ body { background: linear-gradient(170deg, #F5F3F9 0%, #E3E1EA 55%, #C9C3D8 100%
 .archive-date { grid-column: 1 / -1; font: var(--p3); color: var(--muted); letter-spacing: 0; }
 .archive-restore { grid-column: 2; grid-row: 1; align-self: start; min-height: 0; margin: 3px 0 0; padding: 0; display: flex; align-items: center; gap: 4px; white-space: nowrap; font: 800 10.5px/1.2 var(--font) !important; letter-spacing: 0; }
 .login input[aria-invalid=true] { outline: 2px solid #ef9b6a; outline-offset: 2px; }
+
+/* ---------- шаг 25: кружок в нижнем меню — есть задачи, время которых пришло ---------- */
+.tabs button { position: relative; }
+.tab-dot { position: absolute; top: 9px; right: 9px; width: 10px; height: 10px; border-radius: 50%;
+  background: linear-gradient(135deg, #F59768 0%, #FE9853 50%, #F590B2 100%);
+  box-shadow: 0 0 0 2px var(--card, #fff); pointer-events: none; animation: tabdot .5s cubic-bezier(.3,1.6,.5,1); }
+@keyframes tabdot { from { transform: scale(0); } to { transform: scale(1); } }
