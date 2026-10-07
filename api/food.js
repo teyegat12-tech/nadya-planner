@@ -3,7 +3,7 @@
 //   { "image": "data:image/jpeg;base64,...", "note": "съела половину" }   — по фото
 //   { "text": "2 яйца и тост с авокадо" }                                  — по описанию
 //   { "id": "<запись>", "correction": "было 150 г" }                        — пересчитать
-import { rest, readJson, claudeFood, uploadPhoto, userFromToken } from './_lib.js';
+import { rest, readJson, claudeFood, uploadPhoto, downloadPhoto, userFromToken } from './_lib.js';
 
 
 export default async function handler(req, res) {
@@ -16,11 +16,14 @@ export default async function handler(req, res) {
     if (b.id && b.correction) {
       const [row] = await rest(`food_log?id=eq.${encodeURIComponent(b.id)}&user_id=eq.${user.id}&select=*`);
       if (!row) return res.status(404).json({ error: 'запись не найдена' });
-      const est = await claudeFood({ text: b.correction, previous: { title: row.title, items: row.items, kcal: row.kcal } });
+      // показываем нейросети и фото, и прошлую оценку, и уточнение
+      const pic = row.photo_path ? await downloadPhoto(row.photo_path).catch(() => null) : null;
+      const est = await claudeFood({ imageB64: pic?.b64 || null, mediaType: pic?.type, text: b.correction, previous: { title: row.title, items: row.items, kcal: row.kcal } });
       const [upd] = await rest(`food_log?id=eq.${row.id}`, {
         method: 'PATCH', prefer: 'return=representation',
         body: { title: est.title, kcal: est.kcal, protein: est.protein, fat: est.fat, carbs: est.carbs, items: est.items, note: [row.note, b.correction].filter(Boolean).join(' · ') },
       });
+      if (!upd) throw new Error('Не получилось сохранить пересчёт');
       return res.status(200).json({ ...upd, comment: est.comment });
     }
 

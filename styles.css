@@ -2068,3 +2068,6 @@ body { background: linear-gradient(170deg, #F5F3F9 0%, #E3E1EA 55%, #C9C3D8 100%
 .hb-progress circle { stroke-width: 4 !important; }
 .hb-progress-fill { stroke: var(--hbg, var(--pc)) !important; }
 .hb-bar { height: 4px !important; }
+
+/* ---------- шаг 29: выбранная категория встаёт к левому краю полосы ---------- */
+.filters-tail { flex: none; height: 1px; }

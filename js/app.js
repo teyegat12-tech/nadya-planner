@@ -189,8 +189,8 @@ function habitStrip() {
     <section class="hb-strip">
       <div class="hb-strip-head"><h3>${I('flame', 'sm')} Привычки</h3><button class="link-btn" data-view="habits">Все</button></div>
       <div class="hb-row">${act.map((h) => { const st = habitStats(h); return `
-        <button class="hb-dot ${st.todayOn ? 'on' : ''}" data-act="hb-go" data-id="${h.id}" style="${pcVars(h.color)}" title="${esc(h.title)}">
-          <span class="hb-ring"><svg class="hb-progress" viewBox="0 0 64 64" aria-hidden="true" style="--hbg:url(#hbg-${h.id})">${hbGrad(h.id, st.done / h.days)}<circle class="hb-progress-track" cx="32" cy="32" r="29"/><circle class="hb-progress-fill" cx="32" cy="32" r="29" pathLength="100" stroke-dasharray="${100 * st.done / h.days} 100" style="${st.done ? '' : 'visibility:hidden'}"/></svg>${st.todayOn ? I('check') : I(catIcon({ emoji: h.icon }))}</span>
+        <button class="hb-dot" data-act="hb-go" data-id="${h.id}" style="${pcVars(h.color)}" title="${esc(h.title)}">
+          <span class="hb-ring"><svg class="hb-progress" viewBox="0 0 64 64" aria-hidden="true" style="--hbg:url(#hbg-${h.id})">${hbGrad(h.id, st.done / h.days)}<circle class="hb-progress-track" cx="32" cy="32" r="29"/><circle class="hb-progress-fill" cx="32" cy="32" r="29" pathLength="100" stroke-dasharray="${100 * st.done / h.days} 100" style="${st.done ? '' : 'visibility:hidden'}"/></svg>${I(catIcon({ emoji: h.icon }))}</span>
           <span class="hb-name">${esc(h.title)}</span>
           <span class="hb-count">${st.done} / ${h.days}</span>
         </button>`; }).join('')}${(S.reductions || []).map((r) => {
@@ -798,7 +798,6 @@ async function addCat(name, icon) {
 }
 
 function openSheet(t) {
-  markSeen(t);
   S.editing = { ...t };
   const box = $('#sheet');
   box.innerHTML = sheet(S.editing);
@@ -1418,6 +1417,15 @@ function sleepForm(sl) {
     <button class="btn primary" data-act="sleep-save">Записать сон</button>`;
 }
 
+// поле выбора фото живёт вне перерисовок: на iPhone камера сворачивает приложение,
+// планер при возврате обновляется, и поле внутри окна пропадало вместе с фото
+(function foodPhotoInput() {
+  if (document.getElementById('food-photo')) return;
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*'; inp.id = 'food-photo'; inp.hidden = true;
+  document.body.appendChild(inp);
+})();
+
 // сжать фото до 1280px, чтобы быстро улетало
 function compressImage(file) {
   return new Promise((resolve, reject) => {
@@ -1455,7 +1463,7 @@ function openFoodNew() {
     <div class="sheet">
       <div class="sheet-top"><div class="sheet-handle"></div><button class="close-x" data-act="close-log" aria-label="Закрыть">${I('x')}</button></div>
       <h3 class="sheet-h">Добавить еду</h3>
-      <label class="btn fn-photo">${I('camera')} Сфотографировать<input type="file" accept="image/*" id="food-photo" hidden></label>
+      <label class="btn fn-photo" for="food-photo">${I('camera')} Сфотографировать</label>
       <p class="muted small">Нейросеть сама посчитает калории и БЖУ по фото.</p>
       <label>Или опиши словами</label>
       <textarea id="fn-text" rows="2" placeholder="2 яйца, тост с авокадо, капучино"></textarea>
@@ -1630,9 +1638,9 @@ function render() {
   const views = { today: viewToday, plan: viewPlan, health: viewHealth, habits: viewHabits, report: viewReport, settings: viewSettings };
   const tabs = [['today', 'sun', 'Сегодня'], ['plan', 'calendar', 'Задачи'], ['health', 'heart', 'Здоровье'], ['habits', 'flame', 'Привычки'], ['report', 'chart', 'Итоги'], ['settings', 'user', 'Профиль']];
   const keepInput = $('#quick-in')?.value || '';
-  const due = dueNowCount();
-  setAppBadge(due);
-  const dot = { today: due > 0 };
+  const prevCatScroll = $('.top .filters')?.scrollLeft;
+  const dot = {}; // кружок в меню отключён по просьбе
+  setAppBadge(0);
   app.innerHTML = `
     <header class="top">
       <div class="brandbar">
@@ -1664,6 +1672,20 @@ function render() {
       ${tabs.map(([k, i, l]) => `<button data-view="${k}" class="${S.view === k ? 'on' : ''}" title="${l}" aria-label="${l}${dot[k] ? ' — есть что сделать' : ''}">${I(i)}<span>${l}</span>${dot[k] ? '<i class="tab-dot"></i>' : ''}</button>`).join('')}
     </nav>`;
   if (keepInput && $('#quick-in')) $('#quick-in').value = keepInput;
+  // полоса категорий: выбранная встаёт к левому краю, при обычной перерисовке прокрутка не сбивается
+  const nav = app.querySelector('.top .filters');
+  if (nav) {
+    const on = nav.querySelector('button.on');
+    const target = on && S.cat !== 'all' ? Math.max(0, on.offsetLeft - nav.firstElementChild.offsetLeft) : 0;
+    // хвост-отступ, чтобы и последнюю категорию можно было поставить к левому краю
+    const tail = target ? Math.max(0, target + nav.clientWidth - nav.scrollWidth) : 0;
+    if (tail) { const sp = document.createElement('span'); sp.className = 'filters-tail'; sp.style.width = tail + 'px'; nav.appendChild(sp); }
+    if (S.catMoved || prevCatScroll == null) {
+      nav.scrollLeft = prevCatScroll ?? target;
+      if (nav.scrollLeft !== target) nav.scrollTo({ left: target, behavior: S.catMoved ? 'smooth' : 'auto' });
+    } else nav.scrollLeft = prevCatScroll;
+    S.catMoved = false;
+  }
 }
 
 // ---------- события (делегирование) ----------
@@ -1706,7 +1728,7 @@ document.addEventListener('click', async (e) => {
     el.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === el));
     return;
   }
-  if (el.dataset.cat) { S.cat = el.dataset.cat; save('cat', S.cat); render(); return; }
+  if (el.dataset.cat) { S.cat = el.dataset.cat; S.catMoved = true; save('cat', S.cat); render(); return; }
 
   // кнопки внутри окна редактирования
   if ((el.closest('#f-status') || el.closest('#f-cat')) && !el.dataset.act) {
@@ -1899,8 +1921,11 @@ document.addEventListener('click', async (e) => {
       const fix = $('#fd-fix').value.trim();
       if (!fix) break;
       el.disabled = true; el.textContent = 'Считаю…';
-      try { const r = await db.foodAI({ id: S.foodEditing.id, correction: fix }); toast(`${r.title} — ${Math.round(r.kcal)} ккал`); closeLog(); }
-      catch (err) { toast(err.message, true); el.disabled = false; el.textContent = 'Пересчитать'; }
+      try {
+        const r = await db.foodAI({ id: S.foodEditing.id, correction: fix });
+        toast(`Пересчитал: ${r.title} — ${Math.round(r.kcal)} ккал`);
+        openFood({ ...S.foodEditing, ...r }); // показываем обновлённый состав прямо в окне
+      } catch (err) { toast(err.message, true); el.disabled = false; el.textContent = 'Пересчитать'; }
       safe(loadHealth);
       break;
     }

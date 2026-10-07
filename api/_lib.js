@@ -89,7 +89,7 @@ const FOOD_SYSTEM = `Ты — нутрициолог. По фото и/или о
 {"title":"короткое название блюда по-русски","items":[{"name":"продукт","grams":число,"kcal":число,"protein":число,"fat":число,"carbs":число}],"kcal":число,"protein":число,"fat":число,"carbs":число,"comment":"одна короткая фраза: на что опиралась оценка или совет"}
 Правила: граммы и калории — реалистичная оценка видимой порции; БЖУ в граммах; итоговые kcal/protein/fat/carbs — сумма по items.
 Если это напиток — тоже оцени (вода = 0 ккал). Если на фото не еда — верни {"error":"не еда"}.
-Если пользователь уточняет (например «было 150 г», «без соуса», «съела половину») — пересчитай с учётом уточнения.`;
+Если пользователь уточняет (например «было 150 г», «без соуса», «съела половину», «вместо капусты был сыр») — это главнее фото и предыдущей оценки: замени, убери или добавь продукты ровно как он сказал, пересчитай граммы и калории и верни ПОЛНЫЙ обновлённый список items и новое название, если оно изменилось.`;
 
 export async function claudeFood({ imageB64 = null, mediaType = 'image/jpeg', text = '', previous = null }) {
   const key = process.env.ANTHROPIC_API_KEY;
@@ -105,7 +105,7 @@ export async function claudeFood({ imageB64 = null, mediaType = 'image/jpeg', te
     headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
     body: JSON.stringify({
       model: process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
-      max_tokens: 900,
+      max_tokens: 2000,
       system: FOOD_SYSTEM,
       messages: [{ role: 'user', content }],
     }),
@@ -124,6 +124,14 @@ export async function claudeFood({ imageB64 = null, mediaType = 'image/jpeg', te
     kcal: r(data.kcal) ?? 0, protein: r(data.protein), fat: r(data.fat), carbs: r(data.carbs),
     comment: data.comment || '',
   };
+}
+
+// скачать фото из закрытой папки «food» (для пересчёта)
+export async function downloadPhoto(path) {
+  const res = await fetch(`${URL_}/storage/v1/object/food/${path}`, { headers: { apikey: KEY, Authorization: `Bearer ${KEY}` } });
+  if (!res.ok) return null;
+  const type = res.headers.get('content-type') || 'image/jpeg';
+  return { b64: Buffer.from(await res.arrayBuffer()).toString('base64'), type: type.startsWith('image/') ? type : 'image/jpeg' };
 }
 
 // загрузка фото в закрытую папку «food»
