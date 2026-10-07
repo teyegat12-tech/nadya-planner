@@ -85,11 +85,42 @@ export function taskButtons(id) {
 
 // ---------- еда: оценка калорий через Claude ----------
 const FOOD_SYSTEM = `Ты — нутрициолог. По фото и/или описанию еды оцени состав и калорийность порции.
-Отвечай ТОЛЬКО JSON без пояснений вокруг, строго в формате:
+Ответ всегда записывай через инструмент food_estimate. Поля:
 {"title":"короткое название блюда по-русски","items":[{"name":"продукт","grams":число,"kcal":число,"protein":число,"fat":число,"carbs":число}],"kcal":число,"protein":число,"fat":число,"carbs":число,"comment":"одна короткая фраза: на что опиралась оценка или совет"}
 Правила: граммы и калории — реалистичная оценка видимой порции; БЖУ в граммах; итоговые kcal/protein/fat/carbs — сумма по items.
-Если это напиток — тоже оцени (вода = 0 ккал). Если на фото не еда — верни {"error":"не еда"}.
+Если это напиток — тоже оцени (вода = 0 ккал). Если на фото не еда — is_food=false.
 Если пользователь уточняет (например «было 150 г», «без соуса», «съела половину», «вместо капусты был сыр») — это главнее фото и предыдущей оценки: замени, убери или добавь продукты ровно как он сказал, пересчитай граммы и калории и верни ПОЛНЫЙ обновлённый список items и новое название, если оно изменилось.`;
+
+// инструмент со строгой схемой: нейросеть заполняет поля, а не пишет JSON текстом — не бывает «битого» ответа
+const NUM = { type: 'number' };
+const FOOD_TOOL = {
+  name: 'food_estimate',
+  description: 'Записать оценку еды: состав, граммы, калории и БЖУ.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      is_food: { type: 'boolean', description: 'false, если на фото/в описании не еда и не напиток' },
+      title: { type: 'string', description: 'короткое название блюда по-русски' },
+      items: {
+        type: 'array',
+        items: { type: 'object', properties: { name: { type: 'string' }, grams: NUM, kcal: NUM, protein: NUM, fat: NUM, carbs: NUM }, required: ['name', 'grams', 'kcal'] },
+      },
+      kcal: NUM, protein: NUM, fat: NUM, carbs: NUM,
+      comment: { type: 'string', description: 'одна короткая фраза: на что опиралась оценка или совет' },
+    },
+    required: ['is_food', 'title', 'items', 'kcal', 'protein', 'fat', 'carbs'],
+  },
+};
+
+// запасной разбор, если ответ всё же пришёл текстом: чиним типичные огрехи («~40», «40 г», хвостовые запятые)
+function parseLoose(raw) {
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('Не понял ответ нейросети');
+  let t = m[0];
+  try { return JSON.parse(t); } catch {}
+  t = t.replace(/:\s*~\s*(\d)/g, ': $1').replace(/(\d)\s*(г|гр|ккал|kcal|g)\b/g, '$1').replace(/,\s*([\]}])/g, '$1');
+  try { return JSON.parse(t); } catch { throw new Error('Нейросеть ответила неаккуратно — попробуй ещё раз'); }
+}
 
 export async function claudeFood({ imageB64 = null, mediaType = 'image/jpeg', text = '', previous = null }) {
   const key = process.env.ANTHROPIC_API_KEY;
@@ -97,7 +128,10 @@ export async function claudeFood({ imageB64 = null, mediaType = 'image/jpeg', te
   const content = [];
   if (imageB64) content.push({ type: 'image', source: { type: 'base64', media_type: mediaType, data: imageB64 } });
   let prompt = '';
-  if (previous) prompt += `Предыдущая оценка: ${JSON.stringify(previous)}\n`;
+  if (previous) {
+    const was = (previous.items || []).map((i) => `${i.name} ${i.grams ?? '?'} г ${i.kcal ?? '?'} ккал`).join('; ');
+    prompt += `Предыдущая оценка: «${previous.title}», ${previous.kcal} ккал. Состав: ${was}.\n`;
+  }
   prompt += text ? `Комментарий пользователя: ${text}` : 'Оцени эту еду.';
   content.push({ type: 'text', text: prompt });
   const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -107,21 +141,23 @@ export async function claudeFood({ imageB64 = null, mediaType = 'image/jpeg', te
       model: process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
       max_tokens: 2000,
       system: FOOD_SYSTEM,
+      tools: [FOOD_TOOL],
+      tool_choice: { type: 'tool', name: 'food_estimate' },
       messages: [{ role: 'user', content }],
     }),
   });
   const j = await res.json();
   if (!res.ok) throw new Error('Claude: ' + (j.error?.message || res.status));
-  const raw = (j.content || []).map((c) => c.text || '').join('');
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error('Не понял ответ нейросети');
-  const data = JSON.parse(m[0]);
-  if (data.error) throw new Error(data.error === 'не еда' ? 'На фото не вижу еду 🤔' : data.error);
+  const used = (j.content || []).find((c) => c.type === 'tool_use');
+  const data = used?.input || parseLoose((j.content || []).map((c) => c.text || '').join(''));
+  if (data.error || data.is_food === false) throw new Error('На фото не вижу еду 🤔');
   const r = (x) => (x == null || isNaN(Number(x)) ? null : Math.round(Number(x)));
+  const items = (Array.isArray(data.items) ? data.items : []).map((i) => ({ name: String(i.name || ''), grams: r(i.grams), kcal: r(i.kcal) ?? 0, protein: r(i.protein), fat: r(i.fat), carbs: r(i.carbs) }));
+  const sum = (k) => items.reduce((a, i) => a + (i[k] || 0), 0);
   return {
     title: String(data.title || 'Еда').slice(0, 120),
-    items: Array.isArray(data.items) ? data.items : [],
-    kcal: r(data.kcal) ?? 0, protein: r(data.protein), fat: r(data.fat), carbs: r(data.carbs),
+    items,
+    kcal: r(data.kcal) ?? sum('kcal'), protein: r(data.protein) ?? sum('protein'), fat: r(data.fat) ?? sum('fat'), carbs: r(data.carbs) ?? sum('carbs'),
     comment: data.comment || '',
   };
 }

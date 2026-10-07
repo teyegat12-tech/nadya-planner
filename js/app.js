@@ -347,7 +347,7 @@ function applyTheme() {
   const t = getTheme();
   const dark = t === 'dark' || (t === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
-  document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#16121f' : '#E4E3E9');
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', dark ? '#141318' : '#E4E3E9');
 }
 function setTheme(t) { try { localStorage.setItem('theme', t); } catch {} applyTheme(); }
 applyTheme();
@@ -421,7 +421,7 @@ function taskRow(t, { showDate = false, board = false, ghost = false } = {}) {
   return `
     <div class="task ${ghost ? 'ghost' : `${t.status} ${overdue ? 'overdue' : ''}`}" data-id="${t.id}" ${ghost ? '' : 'draggable="true"'}>
       <div class="task-top" data-act="open">
-        <span class="task-cat">${c ? `${plate(c, 'xs')}<span class="tc-name">${esc(c.name)}</span>` : 'Без категории'}</span>
+        <span class="task-cat">${c ? `${plate(c, 'xs')}<span class="tc-name">${esc(c.name)}</span>` : '<span class="tc-name">Без категории</span>'}</span>
         ${ghost ? '<span class="status s-ghost">Повтор</span>' : stShow ? `<span class="status s-${stShow[0]}">${stShow[1]}</span>` : ''}
       </div>
       <div class="task-main">

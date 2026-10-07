@@ -1,7 +1,7 @@
-html[data-theme="dark"] body { background: linear-gradient(170deg, #1d1828 0%, #141120 55%, #0f0c18 100%) fixed !important; }
+html[data-theme="dark"] body { background: linear-gradient(170deg, #1c1a22 0%, #141318 55%, #0f0e12 100%) fixed !important; }
 html[data-theme="dark"] .add-hero { background:
-  radial-gradient(80% 90% at 100% 100%, rgba(150, 112, 240, .55) 0%, rgba(150, 112, 240, 0) 65%),
-  linear-gradient(155deg, #262035 0%, #2a2140 50%, #4a3480 100%) !important; }
+  radial-gradient(80% 90% at 100% 100%, rgba(150, 112, 240, .6) 0%, rgba(150, 112, 240, 0) 65%),
+  linear-gradient(155deg, #24222b 0%, #2a2440 50%, #4a3480 100%) !important; }
 html[data-theme="dark"] .ring-txt { background: none !important; box-shadow: none !important; }
 html[data-theme="dark"] .switch::after { background: #fff !important; }
 /* на лайме текст и галочки остаются тёмными */
