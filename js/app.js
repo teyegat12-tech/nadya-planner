@@ -353,6 +353,30 @@ function setTheme(t) { try { localStorage.setItem('theme', t); } catch {} applyT
 applyTheme();
 matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
 
+// ---------- навигация: стрелка «назад» и жест «назад» браузера ----------
+let navDepth = 0;
+function showView(v) {
+  S.view = v; save('view', v); render(); window.scrollTo(0, 0);
+  if (v === 'report') safe(loadReport);
+  if (v === 'health') safe(loadHealth);
+}
+function goView(v) {
+  if (v === S.view) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+  try { history.pushState({ v }, ''); navDepth++; } catch {}
+  showView(v);
+}
+function goBack() {
+  if (navDepth > 0) { history.back(); return; }
+  try { history.replaceState({ v: 'today' }, ''); } catch {}
+  showView('today');
+}
+try { history.replaceState({ v: S.view }, ''); } catch {}
+window.addEventListener('popstate', (e) => {
+  navDepth = Math.max(0, navDepth - 1);
+  closeLog?.(); if ($('#sheet')?.classList.contains('open')) closeSheet?.();
+  showView(e.state?.v || 'today');
+});
+
 // ---------- кружок в меню: время задачи пришло, а ты её ещё не открывала ----------
 // «видела» хранится на этом устройстве; перенесла задачу на другое время — кружок загорится снова
 const seenKey = (t) => `${t.id}|${t.due_date}|${t.due_time || ''}`;
@@ -1422,12 +1446,28 @@ function sleepForm(sl) {
 (function foodPhotoInput() {
   if (document.getElementById('food-photo')) return;
   const inp = document.createElement('input');
-  inp.type = 'file'; inp.accept = 'image/*'; inp.id = 'food-photo'; inp.hidden = true;
+  inp.type = 'file'; inp.accept = 'image/*'; inp.id = 'food-photo';
+  // не display:none — iPhone иногда не открывает такие поля; просто прячем за край экрана
+  inp.style.cssText = 'position:fixed;left:-200px;top:0;width:1px;height:1px;opacity:0;';
   document.body.appendChild(inp);
 })();
 
 // сжать фото до 1280px, чтобы быстро улетало
-function compressImage(file) {
+async function compressImage(file) {
+  if (window.createImageBitmap) {
+    try {
+      const bmp = await createImageBitmap(file);
+      const k = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+      c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+      bmp.close?.();
+      return c.toDataURL('image/jpeg', 0.82);
+    } catch {}
+  }
+  return compressViaImg(file);
+}
+function compressViaImg(file) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -1644,6 +1684,7 @@ function render() {
   app.innerHTML = `
     <header class="top">
       <div class="brandbar">
+        ${S.view !== 'today' ? `<button class="back-btn" data-act="back" aria-label="Назад">${I('left')}</button>` : ''}
         <div class="brand">${{ today: 'Планер', plan: 'Задачи', report: 'Итоги', health: 'Здоровье', habits: 'Привычки', settings: 'Профиль' }[S.view]}</div>
         <div class="brand-date">${S.view === 'today' ? '' : new Date().toLocaleDateString('ru', { day: 'numeric', month: 'short', weekday: 'short' })}</div>
       </div>
@@ -1699,7 +1740,7 @@ document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act],[data-view],[data-cat],[data-q],[data-range],[data-min],[data-plan],[data-hday],[data-water],[data-q5],#f-status button,#f-cat button,#f-days button,#wk-type button,[data-wmin],#lg-author button,#lg-res button,#hb-icons button,#hb-colors button,[data-hdays]');
   if (!el) return;
 
-  if (el.dataset.view) { S.view = el.dataset.view; save('view', S.view); render(); window.scrollTo(0, 0); if (S.view === 'report') safe(loadReport); if (S.view === 'health') safe(loadHealth); return; }
+  if (el.dataset.view) { goView(el.dataset.view); return; }
   if (el.dataset.plan) { S.planMode = el.dataset.plan; save('planMode', S.planMode); render(); return; }
   if (el.dataset.hday) { const nd = addDays(S.health.date || today(), Number(el.dataset.hday)); if (nd <= today()) { S.health.date = nd; render(); safe(loadHealth); } return; }
   if (el.dataset.water) {
@@ -1775,6 +1816,7 @@ document.addEventListener('click', async (e) => {
       }, 420);
       break;
     }
+    case 'back': goBack(); break;
     case 'theme':
       setTheme(el.dataset.v); render();
       break;
@@ -1993,7 +2035,7 @@ document.addEventListener('click', async (e) => {
       break;
     case 'hb-today': toggleHabit(el.dataset.id, today()); break;
     case 'hb-go': { // кружок в «Сегодня»: открыть привычку, а не отмечать
-      S.habitMode = 'formation'; S.view = 'habits'; save('view', S.view); render(); window.scrollTo(0, 0);
+      S.habitMode = 'formation'; goView('habits');
       const card = document.querySelector(`.habit[data-hid="${el.dataset.id}"]`);
       if (card) { card.scrollIntoView({ behavior: 'smooth', block: 'center' }); card.classList.add('hb-flash'); setTimeout(() => card.classList.remove('hb-flash'), 1400); }
       break;
@@ -2118,9 +2160,13 @@ document.addEventListener('click', async (e) => {
 document.addEventListener('change', async (e) => {
   if (e.target.id === 'food-photo' && e.target.files?.[0]) {
     const file = e.target.files[0];
-    e.target.value = '';
     closeLog();
-    try { const image = await compressImage(file); addFood({ image }); } catch { toast('Не получилось открыть фото', true); }
+    toast('Фото получил, считаю калории…');
+    let image;
+    try { image = await compressImage(file); }
+    catch { toast('Не получилось открыть фото. Попробуй ещё раз или выбери из галереи', true); e.target.value = ''; return; }
+    e.target.value = '';
+    addFood({ image });
     return;
   }
   if (e.target.dataset.prof) {

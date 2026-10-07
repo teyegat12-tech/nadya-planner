@@ -3,8 +3,11 @@
 Этот файл для Claude, Codex и других агентов. В конце каждой рабочей сессии
 отправь в планер запись: что сделано, сколько времени ушло и где лежит результат.
 
-- Адрес: `https://<АДРЕС-ПЛАНЕРА>/api/log` (подставим после запуска)
-- Ключ: переменная окружения `PLANNER_API_KEY`. Ключ не пиши в файлы и в чат.
+- Адрес: `https://nadya-planner.vercel.app/api/log`
+- Ключ: строка `PLANNER_API_KEY=` в файле `My Passport/27_Студия 12/Проекты/Планер/Ключи для Vercel — не публиковать.txt`
+  (или переменная окружения `PLANNER_API_KEY`). Читай ключ прямо в команде, не выводи его, не пиши в файлы и в чат.
+- Нужен доступ в интернет к `nadya-planner.vercel.app`. Если запрос не проходит (нет сети / домен запрещён) —
+  скажи руководителю одной фразой, что запись не ушла, и покажи, что хотел записать (без ключа).
 
 ## Когда записывать
 
@@ -15,7 +18,9 @@
 ## Что отправлять
 
 ```bash
-curl -s -X POST "https://<АДРЕС-ПЛАНЕРА>/api/log" \
+KEYS="$HOME/mnt/My Passport/27_Студия 12/Проекты/Планер/Ключи для Vercel — не публиковать.txt"
+PLANNER_API_KEY="${PLANNER_API_KEY:-$(grep '^PLANNER_API_KEY=' "$KEYS" | cut -d= -f2- | tr -d '\r ')}"
+curl -s -X POST "https://nadya-planner.vercel.app/api/log" \
   -H "Authorization: Bearer $PLANNER_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{

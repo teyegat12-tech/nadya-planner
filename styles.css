@@ -2075,3 +2075,10 @@ body { background: linear-gradient(170deg, #F5F3F9 0%, #E3E1EA 55%, #C9C3D8 100%
 /* ---------- шаг 31: подпись категории не залезает под «Просрочено» ---------- */
 .task-top .task-cat { overflow: hidden; }
 .task-top .tc-name { flex: 1 1 auto; }
+
+/* ---------- шаг 33: стрелка «назад» на внутренних страницах ---------- */
+.brandbar { gap: 10px; }
+.back-btn { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 0; padding: 0; display: grid; place-items: center;
+  background: var(--field); color: var(--ink); box-shadow: var(--shadow); cursor: pointer; }
+.back-btn .ic { width: 20px; height: 20px; }
+.brandbar .brand { margin-right: auto; }

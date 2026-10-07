@@ -134,20 +134,21 @@ export async function claudeFood({ imageB64 = null, mediaType = 'image/jpeg', te
   }
   prompt += text ? `Комментарий пользователя: ${text}` : 'Оцени эту еду.';
   content.push({ type: 'text', text: prompt });
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const call = (withTool) => fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
     body: JSON.stringify({
       model: process.env.CLAUDE_MODEL || 'claude-sonnet-5-5',
       max_tokens: 2000,
-      system: FOOD_SYSTEM,
-      tools: [FOOD_TOOL],
-      tool_choice: { type: 'tool', name: 'food_estimate' },
+      system: withTool ? FOOD_SYSTEM : FOOD_SYSTEM + '\nОтветь ТОЛЬКО JSON с этими полями, без текста вокруг.',
+      ...(withTool ? { tools: [FOOD_TOOL], tool_choice: { type: 'tool', name: 'food_estimate' } } : {}),
       messages: [{ role: 'user', content }],
     }),
-  });
-  const j = await res.json();
-  if (!res.ok) throw new Error('Claude: ' + (j.error?.message || res.status));
+  }).then(async (r) => ({ ok: r.ok, status: r.status, j: await r.json().catch(() => ({})) }));
+  // сначала строгая форма; если API её не принял — обычный ответ текстом
+  let { ok, status, j } = await call(true);
+  if (!ok) { console.error('food tool call failed', status, j?.error?.message); ({ ok, status, j } = await call(false)); }
+  if (!ok) throw new Error('Claude: ' + (j.error?.message || status));
   const used = (j.content || []).find((c) => c.type === 'tool_use');
   const data = used?.input || parseLoose((j.content || []).map((c) => c.text || '').join(''));
   if (data.error || data.is_food === false) throw new Error('На фото не вижу еду 🤔');
