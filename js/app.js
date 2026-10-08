@@ -1735,6 +1735,8 @@ document.addEventListener('click', (e) => {
   if (pop && !pop.hidden && !e.target.closest('#dp') && !e.target.closest('[data-act=dp-open]')) pop.hidden = true;
   const tp = document.getElementById('tp');
   if (tp && !tp.hidden && !e.target.closest('#tp') && !e.target.closest('[data-act=tp-open]')) tp.hidden = true;
+  if (!e.target.closest('.tp-wrap')) document.querySelectorAll('.tp-wrap .tp-pop').forEach((p) => { p.hidden = true; });
+  if (e.target.closest('.tp-wrap .tp-pop')) e.preventDefault(); // поле внутри <label>: не даём подписи «перещёлкнуть» кнопку
 }, true);
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act],[data-view],[data-cat],[data-q],[data-range],[data-min],[data-plan],[data-hday],[data-water],[data-q5],#f-status button,#f-cat button,#f-days button,#wk-type button,[data-wmin],#lg-author button,#lg-res button,#hb-icons button,#hb-colors button,[data-hdays]');
@@ -2421,10 +2423,16 @@ function datePickerAct(act, el) {
 }
 
 // выбор времени в стиле календаря: сетка часов + сетка минут (шаг 5)
-function syncTimeBtn() { const v = $('#f-time')?.value; const b = $('#f-time-btn span'); if (b) b.textContent = v || 'Без времени'; }
-function renderTP() {
-  const pop = $('#tp'); if (!pop) return;
-  const [h, m] = ($('#f-time').value || '').split(':');
+// какое поле сейчас выбираем: поле задачи (#f-time) или любое другое поле времени (сон, еда, тренировка, утренний план)
+function tpCtx(el) {
+  const w = el?.closest?.('.tp-wrap') || S.tpWrap;
+  if (w && w.isConnected) return { wrap: w, inp: w.querySelector('input'), pop: w.querySelector('.tp-pop'), btn: w.querySelector('.date-btn span'), generic: true };
+  return { wrap: null, inp: $('#f-time'), pop: $('#tp'), btn: $('#f-time-btn span'), generic: false };
+}
+function syncTimeBtn(ctx = tpCtx()) { if (ctx.btn) ctx.btn.textContent = ctx.inp?.value || 'Без времени'; }
+function renderTP(ctx = tpCtx()) {
+  const pop = ctx.pop; if (!pop) return;
+  const [h, m] = (ctx.inp.value || '').split(':');
   const hSel = S.tp?.h ?? h, mSel = m;
   const hh = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
   const mm = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
@@ -2433,22 +2441,40 @@ function renderTP() {
     <div class="tp-grid">${hh.map((x) => `<button type="button" data-act="tp-h" data-v="${x}" class="${x === hSel ? 'sel' : ''}">${x}</button>`).join('')}</div>
     <div class="tp-lbl">Минуты</div>
     <div class="tp-grid">${mm.map((x) => `<button type="button" data-act="tp-m" data-v="${x}" class="${x === mSel && hSel === h ? 'sel' : ''}">:${x}</button>`).join('')}</div>
-    <div class="dp-foot"><button type="button" class="link-btn dp-link" data-act="tp-clear">Без времени</button><button type="button" class="link-btn dp-link" data-act="tp-now">Сейчас</button></div>`;
+    <div class="dp-foot">${ctx.generic ? '<span></span>' : '<button type="button" class="link-btn dp-link" data-act="tp-clear">Без времени</button>'}<button type="button" class="link-btn dp-link" data-act="tp-now">Сейчас</button></div>`;
 }
 function timePickerAct(act, el) {
-  const pop = $('#tp'), inp = $('#f-time');
+  const ctx = tpCtx(el); const { pop, inp } = ctx;
+  if (!pop || !inp) return;
   if (act === 'tp-open') {
     if (!pop.hidden) { pop.hidden = true; return; }
-    $('#dp') && ($('#dp').hidden = true);
-    S.tp = { h: (inp.value || '').split(':')[0] || null }; renderTP(); pop.hidden = false; return;
+    document.querySelectorAll('.dp-pop').forEach((p) => { p.hidden = true; });
+    S.tpWrap = ctx.wrap;
+    S.tp = { h: (inp.value || '').split(':')[0] || null }; renderTP(ctx); pop.hidden = false; return;
   }
-  if (act === 'tp-h') { S.tp.h = el.dataset.v; if (!inp.value) inp.value = `${el.dataset.v}:00`; else inp.value = `${el.dataset.v}:${inp.value.split(':')[1]}`; syncTimeBtn(); renderTP(); return; }
+  const before = inp.value;
+  if (act === 'tp-h') { S.tp.h = el.dataset.v; inp.value = `${el.dataset.v}:${(inp.value || ':00').split(':')[1] || '00'}`; syncTimeBtn(ctx); renderTP(ctx); if (ctx.generic && inp.value !== before) inp.dispatchEvent(new Event('change', { bubbles: true })); return; }
   if (act === 'tp-m') { inp.value = `${S.tp.h || '09'}:${el.dataset.v}`; }
-  if (act === 'tp-now') { const n = new Date(); inp.value = `${String(n.getHours()).padStart(2, '0')}:${String(Math.ceil(n.getMinutes() / 5) * 5 % 60).padStart(2, '0')}`; }
+  if (act === 'tp-now') { const n = new Date(); const mm = Math.floor(n.getMinutes() / 5) * 5; inp.value = `${String(n.getHours()).padStart(2, '0')}:${String(mm).padStart(2, '0')}`; }
   if (act === 'tp-clear') inp.value = '';
-  if (inp.value && !$('#f-date').value) { $('#f-date').value = today(); syncDateBtn(); }
-  syncTimeBtn(); pop.hidden = true;
+  if (!ctx.generic && inp.value && !$('#f-date').value) { $('#f-date').value = today(); syncDateBtn(); }
+  syncTimeBtn(ctx); pop.hidden = true;
+  if (ctx.generic && inp.value !== before) inp.dispatchEvent(new Event('change', { bubbles: true }));
 }
+// все системные поля времени заменяем на наш выбор (системное окно на компьютере синее и не в стиле)
+function upgradeTimeInputs(root = document) {
+  root.querySelectorAll?.('input[type="time"]').forEach((inp) => {
+    const wrap = document.createElement('span');
+    wrap.className = 'tp-wrap dp-wrap';
+    inp.replaceWith(wrap);
+    inp.type = 'hidden';
+    wrap.appendChild(inp);
+    wrap.insertAdjacentHTML('beforeend', `<button type="button" class="date-btn ${inp.className}" data-act="tp-open"><span>${inp.value || '—'}</span>${I('clock')}</button><div class="dp-pop tp-pop" hidden></div>`);
+  });
+}
+new MutationObserver((list) => { for (const m of list) for (const n of m.addedNodes) if (n.nodeType === 1) upgradeTimeInputs(n.matches?.('input[type="time"]') ? n.parentNode : n); })
+  .observe(document.body, { childList: true, subtree: true });
+upgradeTimeInputs();
 
 // подтверждение вторым нажатием (вместо системного окна): первый тап — «Точно…?», второй — действие
 function sure(el, label) {

@@ -2082,3 +2082,10 @@ body { background: linear-gradient(170deg, #F5F3F9 0%, #E3E1EA 55%, #C9C3D8 100%
   background: var(--field); color: var(--ink); box-shadow: var(--shadow); cursor: pointer; }
 .back-btn .ic { width: 20px; height: 20px; }
 .brandbar .brand { margin-right: auto; }
+
+/* ---------- шаг 34: наш выбор времени во всех полях (сон, еда, тренировка, утренний план) ---------- */
+.tp-wrap { position: relative; display: block; width: 100%; min-width: 0; }
+.tp-wrap .date-btn { justify-content: space-between; font: 400 16px/1 var(--font); font-variant-numeric: tabular-nums; color: var(--text); }
+.tp-wrap .date-btn.goal-in { width: 100%; }
+.tp-wrap .tp-pop { position: fixed !important; left: 50% !important; right: auto !important; top: 50% !important; transform: translate(-50%, -50%);
+  z-index: 300; box-shadow: 0 30px 80px -20px rgba(20, 18, 40, .45), 0 0 0 100vmax rgba(20, 18, 40, .18); }
